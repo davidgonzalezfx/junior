@@ -5,7 +5,7 @@
 
 **Updated:** 2026-10-23
 **Current milestone:** M2 — Extension shell + chat (2/5)
-**Current task:** none claimed (**next up: M2-3** useChat → /api/chat engine api; M3-1 may run in parallel per plan §8)
+**Current task:** M2-3 — useChat → /api/chat engine api + markdown streaming (session 2026-10-23)
 **Current blockers:** none
 
 ---

@@ -244,7 +244,8 @@ export const ChatRequestBodySchema = z.object({
   agentMode: z.boolean().default(false),        // false = no browser tools registered
   cliTools: z.enum(["browser", "all"]).default("browser"),  // CLI engine: expose native tools too?
   system: z.string().max(8000).optional(),      // panel may prepend its own persona bit
-}).refine((b) => (b.engine === "cli") === (b.provider === "claude-cli"));
+  messages: z.array(z.record(z.string(), z.unknown())),     // UIMessages (M2-3) — loose here;
+})                                             // convertToModelMessages is the real validator
 // engine/provider must agree (M1-2 review: the old defaults were the one invalid pair,
 // api+claude-cli); a minimal {model} body now parses to the valid api+anthropic combo.
 ```

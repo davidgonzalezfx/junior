@@ -160,26 +160,43 @@ describe("QueueItemSchema + ActionResultSchema (plan §3)", () => {
 
 describe("ChatRequestBodySchema (plan §3)", () => {
   it("applies all defaults to a minimal body as the valid api+anthropic pair", () => {
-    expect(ChatRequestBodySchema.parse({ model: "claude-sonnet-5-5" })).toEqual({
+    expect(ChatRequestBodySchema.parse({ model: "claude-sonnet-5-5", messages: [] })).toEqual({
       engine: "api",
       provider: "anthropic",
       model: "claude-sonnet-5-5",
       agentMode: false,
       cliTools: "browser",
+      messages: [],
     });
   });
 
   it("keeps unknown engines/providers and mismatched engine/provider pairs out", () => {
-    expect(() => ChatRequestBodySchema.parse({ model: "m", engine: "ssh" })).toThrow();
-    expect(() => ChatRequestBodySchema.parse({ model: "m", cliTools: "none" })).toThrow();
+    expect(() =>
+      ChatRequestBodySchema.parse({ model: "m", messages: [], engine: "ssh" }),
+    ).toThrow();
+    expect(() =>
+      ChatRequestBodySchema.parse({ model: "m", messages: [], cliTools: "none" }),
+    ).toThrow();
     // The M1-2 review case: api engine can never drive the claude-cli provider…
     expect(() =>
-      ChatRequestBodySchema.parse({ model: "m", engine: "api", provider: "claude-cli" }),
+      ChatRequestBodySchema.parse({
+        model: "m",
+        messages: [],
+        engine: "api",
+        provider: "claude-cli",
+      }),
     ).toThrow(/claude-cli/);
     // …and engine cli implies provider claude-cli (the anthropic default is rejected).
-    expect(() => ChatRequestBodySchema.parse({ model: "m", engine: "cli" })).toThrow();
+    expect(() =>
+      ChatRequestBodySchema.parse({ model: "m", messages: [], engine: "cli" }),
+    ).toThrow();
     expect(
-      ChatRequestBodySchema.parse({ model: "m", engine: "cli", provider: "claude-cli" }),
+      ChatRequestBodySchema.parse({
+        model: "m",
+        messages: [],
+        engine: "cli",
+        provider: "claude-cli",
+      }),
     ).toMatchObject({ engine: "cli", provider: "claude-cli", cliTools: "browser" });
   });
 });

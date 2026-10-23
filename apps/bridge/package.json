@@ -8,8 +8,11 @@
     "junior-bridge": "dist/bin.js"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "4.0.87",
+    "@ai-sdk/openai-compatible": "2.0.87",
     "@hono/node-server": "2.1.5",
     "@junior/protocol": "workspace:*",
+    "ai": "7.0.151",
     "hono": "4.13.13"
   },
   "devDependencies": {

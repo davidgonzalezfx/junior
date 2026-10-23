@@ -1,7 +1,8 @@
-// Panel shell — M2-2: onboarding on first run + bridge status bar. Chat (M2-3), ⌘K
+// Panel shell — M2-2: onboarding on first run + bridge status bar. M2-3: chat. ⌘K
 // picker and settings (M2-4), history (M2-5) land later (plan §8).
 import { useEffect, useState } from "react";
 import { BridgeStatusBar } from "@/components/bridge-status-bar";
+import { ChatPanel } from "@/components/chat-panel";
 import { Onboarding } from "@/components/onboarding";
 import { isOnboarded } from "@/lib/settings";
 
@@ -22,10 +23,7 @@ export default function App() {
     <div className="flex h-screen flex-col bg-background text-foreground">
       <BridgeStatusBar />
       <div className="flex flex-1 flex-col gap-3 p-4">
-        <h1 className="text-lg font-semibold">Junior</h1>
-        <p className="text-sm text-muted-foreground">
-          Chat arrives with M2-3 — pairing, settings and history are on the way.
-        </p>
+        <ChatPanel />
       </div>
     </div>
   );

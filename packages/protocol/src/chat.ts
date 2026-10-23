@@ -14,6 +14,12 @@ export const ChatRequestBodySchema = z
     agentMode: z.boolean().default(false), // false = no browser tools registered
     cliTools: z.enum(["browser", "all"]).default("browser"), // CLI engine: expose native tools too?
     system: z.string().max(8000).optional(), // panel may prepend its own persona bit
+    // UIMessages as sent by DefaultChatTransport (M2-3). Deliberately loose here — the AI
+    // SDK owns the UIMessage shape and `convertToModelMessages` is the real validator
+    // (the bridge turns its throw into a 400); duplicating that union in zod would rot
+    // with every ai@ release. Other transport fields (id/trigger/messageId) pass through
+    // unvalidated.
+    messages: z.array(z.record(z.string(), z.unknown())),
   })
   .refine((b) => (b.engine === "cli") === (b.provider === "claude-cli"), {
     message:
