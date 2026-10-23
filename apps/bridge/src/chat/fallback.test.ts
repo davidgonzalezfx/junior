@@ -2,7 +2,12 @@
 // and firstSuccessfulStream's attempt semantics. Streams are hand-built — no SDK.
 import { describe, expect, it } from "vitest";
 import type { UIMessageChunk } from "ai";
-import { AllProvidersFailedError, buildCandidateChain, firstSuccessfulStream, probeUiStream } from "./fallback.js";
+import {
+  AllProvidersFailedError,
+  buildCandidateChain,
+  firstSuccessfulStream,
+  probeUiStream,
+} from "./fallback.js";
 
 function streamOf(...chunks: UIMessageChunk[]): ReadableStream<UIMessageChunk> {
   return new ReadableStream<UIMessageChunk>({
@@ -16,7 +21,11 @@ function streamOf(...chunks: UIMessageChunk[]): ReadableStream<UIMessageChunk> {
 /** A stream that emits an error chunk and closes (what streamText produces when the
  * provider 4xx/5xxs before the first token). */
 function errorStream(): ReadableStream<UIMessageChunk> {
-  return streamOf({ type: "start" }, { type: "start-step" }, { type: "error", errorText: "401 Unauthorized" });
+  return streamOf(
+    { type: "start" },
+    { type: "start-step" },
+    { type: "error", errorText: "401 Unauthorized" },
+  );
 }
 
 function contentStream(text: string): ReadableStream<UIMessageChunk> {
@@ -85,7 +94,10 @@ describe("probeUiStream", () => {
 
   it("counts a tool-input chunk as content (agent streams must not trigger fallback)", async () => {
     const probe = probeUiStream(
-      streamOf({ type: "start" }, { type: "tool-input-start", toolCallId: "t1", toolName: "read_page" }),
+      streamOf(
+        { type: "start" },
+        { type: "tool-input-start", toolCallId: "t1", toolName: "read_page" },
+      ),
     );
     expect(await probe.verdict).toBe("ok");
     await collect(probe.stream);
@@ -94,10 +106,15 @@ describe("probeUiStream", () => {
 
 describe("firstSuccessfulStream", () => {
   it("falls back to the next attempt when the first errors pre-token, replay intact", async () => {
-    const stream = await firstSuccessfulStream([() => errorStream(), () => contentStream("BACKUP_OK")]);
+    const stream = await firstSuccessfulStream([
+      () => errorStream(),
+      () => contentStream("BACKUP_OK"),
+    ]);
     const chunks = await collect(stream);
     expect(chunks[0]?.type).toBe("start");
-    expect(chunks.some((c) => c.type === "text-delta" && (c as { delta: string }).delta === "BACKUP_OK")).toBe(true);
+    expect(
+      chunks.some((c) => c.type === "text-delta" && (c as { delta: string }).delta === "BACKUP_OK"),
+    ).toBe(true);
     expect(chunks[chunks.length - 1]?.type).toBe("finish");
   });
 
@@ -109,7 +126,11 @@ describe("firstSuccessfulStream", () => {
       () => contentStream("PRIMARY_OK"),
     ]);
     const chunks = await collect(stream);
-    expect(chunks.some((c) => c.type === "text-delta" && (c as { delta: string }).delta === "PRIMARY_OK")).toBe(true);
+    expect(
+      chunks.some(
+        (c) => c.type === "text-delta" && (c as { delta: string }).delta === "PRIMARY_OK",
+      ),
+    ).toBe(true);
   });
 
   it("throws AllProvidersFailedError aggregating every failure when nothing produces content", async () => {

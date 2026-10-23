@@ -85,7 +85,8 @@ export function chatRoutes(deps: ChatDeps) {
       instructions,
       messages,
       maxRetries: 0, // the fallback chain owns retries — SDK backoff would mask pre-token 5xxes
-      onError: ({ error }) => log(`[chat] stream error (${body.data.provider}): ${toErrorText(error)}`),
+      onError: ({ error }) =>
+        log(`[chat] stream error (${body.data.provider}): ${toErrorText(error)}`),
     });
 
     try {
@@ -100,7 +101,8 @@ export function chatRoutes(deps: ChatDeps) {
               instructions,
               messages,
               maxRetries: 0, // chain owns retries
-              onError: ({ error }) => log(`[chat] stream error (${providerId}): ${toErrorText(error)}`),
+              onError: ({ error }) =>
+                log(`[chat] stream error (${providerId}): ${toErrorText(error)}`),
             });
             return toUIMessageStream({ stream: result.stream, onError: toErrorText });
           }),

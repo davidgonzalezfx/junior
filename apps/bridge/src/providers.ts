@@ -55,7 +55,9 @@ export function applyProvidersPatch(
         : patch.anthropicKey;
   const openaiCompatible = patch.openaiCompatible.map((entry) => {
     const apiKey =
-      entry.apiKey ?? config.providers.openaiCompatible.find((p) => p.id === entry.id)?.apiKey ?? "";
+      entry.apiKey ??
+      config.providers.openaiCompatible.find((p) => p.id === entry.id)?.apiKey ??
+      "";
     return { ...entry, apiKey };
   });
   return JuniorConfigSchema.parse({
@@ -104,7 +106,11 @@ export async function testProvider(
     const wire = (await res.json()) as { data?: unknown };
     const ids = Array.isArray(wire.data)
       ? wire.data
-          .map((m) => (typeof m === "object" && m !== null && "id" in m ? String((m as { id: unknown }).id) : null))
+          .map((m) =>
+            typeof m === "object" && m !== null && "id" in m
+              ? String((m as { id: unknown }).id)
+              : null,
+          )
           .filter((id): id is string => id !== null)
       : [];
     if (ids.length === 0) return { ok: false, error: "response contained no models" };

@@ -39,7 +39,14 @@ describe("providers config + Settings→Providers wire shapes (M2-4)", () => {
   it("ProvidersViewSchema never carries a raw key — masked string or null only", () => {
     const view = ProvidersViewSchema.parse({
       anthropicKeyMasked: "sk-…abcd",
-      openaiCompatible: [{ id: "openrouter", label: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", hasApiKey: true }],
+      openaiCompatible: [
+        {
+          id: "openrouter",
+          label: "OpenRouter",
+          baseUrl: "https://openrouter.ai/api/v1",
+          hasApiKey: true,
+        },
+      ],
       fallbackChain: ["anthropic", "openrouter"],
     });
     expect(view.openaiCompatible[0]).not.toHaveProperty("apiKey");
@@ -47,7 +54,9 @@ describe("providers config + Settings→Providers wire shapes (M2-4)", () => {
       ProvidersViewSchema.parse({
         anthropicKeyMasked: null,
         // a raw apiKey field would mean the GET leaks keys — reject via strictness:
-        openaiCompatible: [{ id: "x", label: "x", baseUrl: "https://x/v1", hasApiKey: false, apiKey: "sk-leak" }],
+        openaiCompatible: [
+          { id: "x", label: "x", baseUrl: "https://x/v1", hasApiKey: false, apiKey: "sk-leak" },
+        ],
         fallbackChain: [],
       }),
     ).toThrow();
@@ -69,8 +78,13 @@ describe("providers config + Settings→Providers wire shapes (M2-4)", () => {
   });
 
   it("ProviderTestResult is a discriminated ok/models | ok/error union", () => {
-    expect(ProviderTestResultSchema.parse({ ok: true, models: ["m1"] })).toEqual({ ok: true, models: ["m1"] });
-    expect(ProviderTestResultSchema.safeParse({ ok: false, error: "401 unauthorized" }).success).toBe(true);
+    expect(ProviderTestResultSchema.parse({ ok: true, models: ["m1"] })).toEqual({
+      ok: true,
+      models: ["m1"],
+    });
+    expect(
+      ProviderTestResultSchema.safeParse({ ok: false, error: "401 unauthorized" }).success,
+    ).toBe(true);
     expect(ProviderTestResultSchema.safeParse({ ok: true }).success).toBe(false);
     expect(ProviderTestRequestSchema.safeParse({ providerId: "" }).success).toBe(false);
   });

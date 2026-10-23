@@ -6,9 +6,14 @@ import {
   BridgeStatusSchema,
   PairingResultSchema,
   PairingStatusSchema,
+  ProvidersPatchSchema,
+  ProvidersViewSchema,
+  ProviderTestResultSchema,
   type BridgeStatus,
   type PairingResult,
   type PairingStatus,
+  type ProvidersPatch,
+  type ProvidersView,
 } from "@junior/protocol";
 
 /** The bridge is down (fetch threw) — no HTTP status exists. */
@@ -36,7 +41,7 @@ export class BridgeHttpError extends Error {
 }
 
 interface RequestOptions {
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "PUT";
   token?: string;
   body?: unknown;
 }
@@ -89,6 +94,42 @@ export async function postPairing(baseUrl: string, token: string): Promise<Pairi
 /** GET /api/status — bridge facts + providers (drives onboarding step 3; M2-4 picker). */
 export async function fetchStatus(baseUrl: string, token: string): Promise<BridgeStatus> {
   return bridgeFetch(baseUrl, "/api/status", (raw) => BridgeStatusSchema.parse(raw), { token });
+}
+
+// --- Settings → Providers (M2-4, plan §5.3) -----------------------------------
+
+/** GET /api/config — masked providers view (keys never come back over the wire). */
+export async function fetchProvidersView(baseUrl: string, token: string): Promise<ProvidersView> {
+  return bridgeFetch(baseUrl, "/api/config", (raw) => ProvidersViewSchema.parse(raw), { token });
+}
+
+/** PUT /api/config — full providers-block patch; absent keys keep what the bridge has. */
+export async function putProviders(
+  baseUrl: string,
+  token: string,
+  providers: ProvidersPatch["providers"],
+): Promise<void> {
+  // The body is the patch we were given — parse it client-side so typos fail at the
+  // caller with a real message instead of a 400 round-trip.
+  const patch = ProvidersPatchSchema.parse({ providers });
+  await bridgeFetch(baseUrl, "/api/config", (raw) => raw as { ok: boolean }, {
+    method: "PUT",
+    token,
+    body: patch,
+  });
+}
+
+/** POST /api/config/test — the Settings "test"/"fetch models" button. */
+export async function testProvider(
+  baseUrl: string,
+  token: string,
+  providerId: string,
+): Promise<{ ok: true; models: string[] } | { ok: false; error: string }> {
+  return bridgeFetch(baseUrl, "/api/config/test", (raw) => ProviderTestResultSchema.parse(raw), {
+    method: "POST",
+    token,
+    body: { providerId },
+  });
 }
 
 /**

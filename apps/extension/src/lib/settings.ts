@@ -74,3 +74,40 @@ export async function setDefaultProvider(provider: DefaultProvider | null): Prom
     await browser.storage.local.set({ [DEFAULT_PROVIDER_KEY]: provider });
   }
 }
+
+// --- recent models (⌘K picker "recent" section, plan §5.3) --------------------
+
+const RECENT_MODELS_KEY = "junior_recent_models";
+const RECENT_MODELS_MAX = 5;
+
+export interface RecentModel {
+  providerId: string;
+  model: string;
+}
+
+export async function getRecentModels(): Promise<RecentModel[]> {
+  const stored = await browser.storage.local.get(RECENT_MODELS_KEY);
+  const value = stored[RECENT_MODELS_KEY];
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (entry): entry is RecentModel =>
+      typeof entry === "object" &&
+      entry !== null &&
+      typeof (entry as RecentModel).providerId === "string" &&
+      typeof (entry as RecentModel).model === "string",
+  );
+}
+
+/** Most-recent-first, deduped, capped at 5 (pure list math is tested; storage is not). */
+export function pushRecentModel(list: RecentModel[], entry: RecentModel): RecentModel[] {
+  return [
+    entry,
+    ...list.filter((m) => !(m.providerId === entry.providerId && m.model === entry.model)),
+  ].slice(0, RECENT_MODELS_MAX);
+}
+
+export async function addRecentModel(entry: RecentModel): Promise<RecentModel[]> {
+  const next = pushRecentModel(await getRecentModels(), entry);
+  await browser.storage.local.set({ [RECENT_MODELS_KEY]: next });
+  return next;
+}

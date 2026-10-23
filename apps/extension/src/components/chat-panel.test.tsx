@@ -8,6 +8,16 @@ import { ChatPanel } from "@/components/chat-panel";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
+// Radix Dialog (under cmdk) observes content size — jsdom has no ResizeObserver.
+class ResizeObserverStub {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+(globalThis as Record<string, unknown>).ResizeObserver = ResizeObserverStub;
+// cmdk scrolls the selected item into view — jsdom lacks both the API and layout.
+Element.prototype.scrollIntoView = () => {};
+
 const UI_STREAM = [
   `data: {"type":"start"}`,
   `data: {"type":"start-step"}`,
@@ -28,11 +38,21 @@ const STATUS = {
   providers: [
     { id: "claude-cli", kind: "claude-cli", label: "CLI", available: true, models: [] },
     {
+      id: "anthropic",
+      kind: "anthropic",
+      label: "Anthropic",
+      available: true,
+      models: [{ id: "claude-sonnet-5-5", badges: ["reasoning"] }],
+    },
+    {
       id: "openrouter",
       kind: "openai-compatible",
       label: "OpenRouter",
       available: true,
-      models: [{ id: "vendor/model-x", badges: [] }],
+      models: [
+        { id: "vendor/model-x", badges: [] },
+        { id: "vendor/model-y", badges: ["fast"] },
+      ],
     },
   ],
   browserConnected: true,
@@ -111,5 +131,56 @@ describe("ChatPanel", () => {
       model: "vendor/model-x",
     });
     expect(Array.isArray(req.body.messages)).toBe(true);
+  });
+
+  it("⌘K flow: the badge opens the palette, picking a model retargets the next send + persists", async () => {
+    await browser.storage.local.set({
+      junior_bridge_token: "t".repeat(64),
+      junior_default_provider: { providerId: "openrouter", model: "vendor/model-x" },
+    });
+    vi.stubGlobal("fetch", stubFetch());
+
+    render(<ChatPanel />);
+    await screen.findByLabelText("message");
+
+    // The badge IS the palette trigger (plan §5.3).
+    fireEvent.click(screen.getByLabelText("Change model (⌘K)"));
+    const listbox = await screen.findByRole("listbox");
+    expect(listbox).toBeTruthy();
+    // Groups = providers from /api/status; claude-cli has no catalog → absent.
+    expect(screen.getAllByText("Anthropic").length).toBeGreaterThan(0);
+
+    // Pick a different model; the dialog closes and the badge reflects it.
+    fireEvent.click(screen.getByRole("option", { name: /vendor\/model-y/ }));
+    await waitFor(() => {
+      expect(screen.queryByRole("listbox")).toBeNull();
+    });
+
+    const textarea = screen.getByLabelText("message");
+    fireEvent.change(textarea, { target: { value: "to the new model" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await waitFor(() => {
+      expect(chatRequests).toHaveLength(1);
+    });
+    expect(chatRequests[0]!.body).toMatchObject({
+      engine: "api",
+      provider: "openrouter",
+      model: "vendor/model-y",
+    });
+
+    // Selection persists: default provider + a recent entry.
+    await waitFor(async () => {
+      const stored = await browser.storage.local.get([
+        "junior_default_provider",
+        "junior_recent_models",
+      ]);
+      expect(stored.junior_default_provider).toEqual({
+        providerId: "openrouter",
+        model: "vendor/model-y",
+      });
+      expect(stored.junior_recent_models).toEqual([
+        { providerId: "openrouter", model: "vendor/model-y" },
+      ]);
+    });
   });
 });

@@ -92,7 +92,9 @@ export type StreamAttempt = () => ReadableStream<UIMessageChunk>;
  * A thunk that THROWS (e.g. resolveModel's UnknownProviderError for a stale chain
  * entry) counts as a failed attempt, not a route error. All fail ⇒ throw
  * AllProvidersFailedError — safe to turn into an HTTP error, nothing was sent. */
-export async function firstSuccessfulStream(attempts: StreamAttempt[]): Promise<ReadableStream<UIMessageChunk>> {
+export async function firstSuccessfulStream(
+  attempts: StreamAttempt[],
+): Promise<ReadableStream<UIMessageChunk>> {
   const failures: string[] = [];
   for (const attempt of attempts) {
     let probe: Probe;
@@ -105,7 +107,9 @@ export async function firstSuccessfulStream(attempts: StreamAttempt[]): Promise<
     const verdict = await probe.verdict;
     if (verdict === "ok") return probe.stream;
     probe.discard();
-    failures.push(verdict === "error" ? "provider error before first token" : "provider returned no content");
+    failures.push(
+      verdict === "error" ? "provider error before first token" : "provider returned no content",
+    );
   }
   throw new AllProvidersFailedError(failures);
 }

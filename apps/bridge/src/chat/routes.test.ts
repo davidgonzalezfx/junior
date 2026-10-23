@@ -44,7 +44,9 @@ const uiMessage = { id: "m1", role: "user", parts: [{ type: "text", text: "hi" }
  * ephemeral port, so @ai-sdk/openai-compatible parses a genuine wire. Records bodies.
  * `failStatus` makes /chat/completions answer with that status instead (the fallback
  * chain's pre-token provider failure). */
-async function startMockOpenAI(opts: { failStatus?: number; text?: string } = {}): Promise<{ baseUrl: string; bodies: unknown[] }> {
+async function startMockOpenAI(
+  opts: { failStatus?: number; text?: string } = {},
+): Promise<{ baseUrl: string; bodies: unknown[] }> {
   const bodies: unknown[] = [];
   const server: Server = createServer((req, res) => {
     void (async () => {
@@ -279,7 +281,11 @@ describe("POST /api/chat fallback chain (M2-4, plan §4.5)", () => {
         fallbackChain: ["openrouter", "backup"],
       },
     });
-    const res = await postChat(app, { provider: "openrouter", model: "vendor/model-name", messages: [uiMessage] });
+    const res = await postChat(app, {
+      provider: "openrouter",
+      model: "vendor/model-name",
+      messages: [uiMessage],
+    });
     expect(res.status).toBe(502);
     expect(wireError(await res.json())).toMatch(/all providers failed/);
     expect(a.bodies).toHaveLength(1);
@@ -290,11 +296,17 @@ describe("POST /api/chat fallback chain (M2-4, plan §4.5)", () => {
     const primary = await startMockOpenAI();
     const { app } = newApp({
       providers: {
-        openaiCompatible: [{ id: "openrouter", label: "OpenRouter", baseUrl: primary.baseUrl, apiKey: "sk-test" }],
+        openaiCompatible: [
+          { id: "openrouter", label: "OpenRouter", baseUrl: primary.baseUrl, apiKey: "sk-test" },
+        ],
         fallbackChain: ["openrouter", "ghost"],
       },
     });
-    const res = await postChat(app, { provider: "openrouter", model: "vendor/model-name", messages: [uiMessage] });
+    const res = await postChat(app, {
+      provider: "openrouter",
+      model: "vendor/model-name",
+      messages: [uiMessage],
+    });
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("OPENROUTER_MOCK_OK");
   });
@@ -303,10 +315,16 @@ describe("POST /api/chat fallback chain (M2-4, plan §4.5)", () => {
     const down = await startMockOpenAI({ failStatus: 401 });
     const { app } = newApp({
       providers: {
-        openaiCompatible: [{ id: "openrouter", label: "OpenRouter", baseUrl: down.baseUrl, apiKey: "sk-test" }],
+        openaiCompatible: [
+          { id: "openrouter", label: "OpenRouter", baseUrl: down.baseUrl, apiKey: "sk-test" },
+        ],
       },
     });
-    const res = await postChat(app, { provider: "openrouter", model: "vendor/model-name", messages: [uiMessage] });
+    const res = await postChat(app, {
+      provider: "openrouter",
+      model: "vendor/model-name",
+      messages: [uiMessage],
+    });
     expect(res.status).toBe(502);
   });
 });

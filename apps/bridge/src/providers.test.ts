@@ -42,14 +42,28 @@ describe("pure helpers", () => {
     const config = JuniorConfigSchema.parse({
       providers: {
         anthropicKey: "sk-ant-1234567890abcdef",
-        openaiCompatible: [{ id: "openrouter", label: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", apiKey: "sk-or-1234567890" }],
+        openaiCompatible: [
+          {
+            id: "openrouter",
+            label: "OpenRouter",
+            baseUrl: "https://openrouter.ai/api/v1",
+            apiKey: "sk-or-1234567890",
+          },
+        ],
         fallbackChain: ["anthropic"],
       },
     });
     const view = toProvidersView(config);
     expect(view).toEqual({
       anthropicKeyMasked: "…cdef",
-      openaiCompatible: [{ id: "openrouter", label: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", hasApiKey: true }],
+      openaiCompatible: [
+        {
+          id: "openrouter",
+          label: "OpenRouter",
+          baseUrl: "https://openrouter.ai/api/v1",
+          hasApiKey: true,
+        },
+      ],
       fallbackChain: ["anthropic"],
     });
     expect(JSON.stringify(view)).not.toContain("sk-or-1234567890");
@@ -60,7 +74,9 @@ describe("pure helpers", () => {
     const config = JuniorConfigSchema.parse({
       providers: {
         anthropicKey: "sk-keep-me",
-        openaiCompatible: [{ id: "openrouter", label: "Old", baseUrl: "https://old/v1", apiKey: "sk-existing" }],
+        openaiCompatible: [
+          { id: "openrouter", label: "Old", baseUrl: "https://old/v1", apiKey: "sk-existing" },
+        ],
       },
     });
     const merged = applyProvidersPatch(config, {
@@ -82,7 +98,11 @@ describe("pure helpers", () => {
 
   it("applyProvidersPatch: explicit empty string clears a key (config, not just view)", () => {
     const config = JuniorConfigSchema.parse({ providers: { anthropicKey: "sk-gone" } });
-    const merged = applyProvidersPatch(config, { openaiCompatible: [], fallbackChain: [], anthropicKey: "" });
+    const merged = applyProvidersPatch(config, {
+      openaiCompatible: [],
+      fallbackChain: [],
+      anthropicKey: "",
+    });
     expect(merged.providers.anthropicKey).toBeUndefined();
   });
 });
@@ -92,7 +112,14 @@ describe("GET/PUT /api/config + POST /api/config/test (bearer-gated)", () => {
     const dir = newDir({
       providers: {
         anthropicKey: "sk-ant-1234567890abcd",
-        openaiCompatible: [{ id: "openrouter", label: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", apiKey: "sk-or-kept" }],
+        openaiCompatible: [
+          {
+            id: "openrouter",
+            label: "OpenRouter",
+            baseUrl: "https://openrouter.ai/api/v1",
+            apiKey: "sk-or-kept",
+          },
+        ],
       },
     });
     const app = newApp(dir);
@@ -108,7 +135,9 @@ describe("GET/PUT /api/config + POST /api/config/test (bearer-gated)", () => {
       headers: auth,
       body: JSON.stringify({
         providers: {
-          openaiCompatible: [{ id: "openrouter", label: "Renamed", baseUrl: "https://openrouter.ai/api/v1" }],
+          openaiCompatible: [
+            { id: "openrouter", label: "Renamed", baseUrl: "https://openrouter.ai/api/v1" },
+          ],
           fallbackChain: ["anthropic", "openrouter"],
         },
       }),
@@ -117,7 +146,9 @@ describe("GET/PUT /api/config + POST /api/config/test (bearer-gated)", () => {
 
     // Read the FILE: the anthropic key was absent from the patch and must survive;
     // the openrouter entry kept its key while picking up the new label.
-    const onDisk = JuniorConfigSchema.parse(JSON.parse(readFileSync(join(dir, "config.json"), "utf8")));
+    const onDisk = JuniorConfigSchema.parse(
+      JSON.parse(readFileSync(join(dir, "config.json"), "utf8")),
+    );
     expect(onDisk.providers.anthropicKey).toBe("sk-ant-1234567890abcd");
     expect(onDisk.providers.openaiCompatible[0]?.apiKey).toBe("sk-or-kept");
     expect(onDisk.providers.openaiCompatible[0]?.label).toBe("Renamed");
@@ -133,23 +164,36 @@ describe("GET/PUT /api/config + POST /api/config/test (bearer-gated)", () => {
       body: JSON.stringify({ providers: { fallbackChain: "not-an-array" } }),
     });
     expect(res.status).toBe(400);
-    expect((await res.json() as { error?: unknown }).error).toMatch(/fallbackChain/);
+    expect(((await res.json()) as { error?: unknown }).error).toMatch(/fallbackChain/);
   });
 
   it("POST /api/config/test lists models through the fetch seam (openai-compatible)", async () => {
     const dir = newDir({
       providers: {
-        openaiCompatible: [{ id: "openrouter", label: "OpenRouter", baseUrl: "https://openrouter.test/api/v1", apiKey: "sk-or" }],
+        openaiCompatible: [
+          {
+            id: "openrouter",
+            label: "OpenRouter",
+            baseUrl: "https://openrouter.test/api/v1",
+            apiKey: "sk-or",
+          },
+        ],
       },
     });
     const seen: Array<{ url: string; auth: string | null }> = [];
     const app = newApp(dir, {
-      fetchImpl: (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      fetchImpl: (async (
+        input: Parameters<typeof fetch>[0],
+        init?: Parameters<typeof fetch>[1],
+      ) => {
         const headers = new Headers(init?.headers);
         seen.push({ url: String(input), auth: headers.get("authorization") });
-        return new Response(JSON.stringify({ data: [{ id: "vendor/model-a" }, { id: "vendor/model-b" }] }), {
-          status: 200,
-        });
+        return new Response(
+          JSON.stringify({ data: [{ id: "vendor/model-a" }, { id: "vendor/model-b" }] }),
+          {
+            status: 200,
+          },
+        );
       }) as typeof fetch,
     });
     const res = await app.request("/api/config/test", {
@@ -188,7 +232,10 @@ describe("GET/PUT /api/config + POST /api/config/test (bearer-gated)", () => {
         })
       ).json();
     expect(await test("locked")).toMatchObject({ ok: false, error: "401" });
-    expect(await test("empty")).toMatchObject({ ok: false, error: expect.stringContaining("no models") });
+    expect(await test("empty")).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("no models"),
+    });
     expect(await test("ghost")).toMatchObject({ ok: false }); // not configured
     expect(await test("anthropic")).toMatchObject({ ok: false }); // no key
   });
@@ -198,10 +245,22 @@ describe("GET/PUT /api/config + POST /api/config/test (bearer-gated)", () => {
     const app = newApp(dir);
     expect((await app.request("/api/config")).status).toBe(401);
     expect(
-      (await app.request("/api/config", { method: "PUT", headers: { "content-type": "application/json" }, body: "{}" })).status,
+      (
+        await app.request("/api/config", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        })
+      ).status,
     ).toBe(401);
     expect(
-      (await app.request("/api/config/test", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status,
+      (
+        await app.request("/api/config/test", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        })
+      ).status,
     ).toBe(401);
   });
 });
