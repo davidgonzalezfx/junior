@@ -464,8 +464,10 @@ const args = [
 - Stream mapping: `text_delta` → text parts; `thinking_delta` → reasoning parts (rendered collapsible);
   tool_use/tool_result events → AI SDK UI message stream tool parts; `result` → finish. Parse errors and
   CLI stderr → error part, never swallowed (ModelBridge hid failures in thought blocks — fixed).
-- CLI availability: `junior --version`-style probe (port ModelBridge `core/auth_status.py` detection:
-  PATH, Windows npm/WinGet paths, `~/.claude` login check) surfaced in `/api/status`.
+- CLI availability: resolve the binary (`cliPath` override > PATH > Windows WinGet/npm candidates —
+  port of `core/config.py:49–71` + `core/auth_status.py`), then probe `claude --version` +
+  `claude auth status` (JSON: `loggedIn`/`authMethod`/`email`; verified against CLI 2.1.309, M1-3)
+  surfaced in `/api/status`.
 
 **Token accounting** (`usage.ts`): API engine → AI SDK `usage` per step; CLI engine → usage fields from
 stream-json `result`. Stored per message and rolled up per session; rendered as chips in the panel.

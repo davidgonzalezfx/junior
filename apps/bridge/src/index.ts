@@ -1,6 +1,6 @@
 // @junior/bridge — Hono app on 127.0.0.1:8620 (plan §1, §4).
 // M1-1: health + pairing + auth/CORS. M1-2: dispatcher long-poll (/api/agent/*).
-// /api/status (M1-3), guard (M1-4), chat engines + MCP server (M4) mount below the
+// M1-3: /api/status. Guard (M1-4), chat engines + MCP server (M4) mount below the
 // auth middleware as they land.
 import { Hono } from "hono";
 import { PairingRequestSchema, PairingResultSchema, PairingStatusSchema } from "@junior/protocol";
@@ -14,6 +14,8 @@ import {
   readToken,
   writeToken,
 } from "./config.js";
+import { statusRoutes } from "./status.js";
+import type { probeClaude } from "./cli-detect.js";
 
 export interface BridgeDeps {
   /** Config dir (~/.junior or $JUNIOR_HOME) — injected so tests run hermetically. */
@@ -22,6 +24,8 @@ export interface BridgeDeps {
   log?: Logger;
   /** Dispatcher seam for tests; each app gets a fresh one by default. */
   dispatcher?: Dispatcher;
+  /** /api/status seams for tests — real detection + package.json version by default. */
+  status?: { probe?: typeof probeClaude; version?: string };
 }
 
 export function createApp(deps: BridgeDeps = { dir: juniorDir() }) {
@@ -84,8 +88,10 @@ export function createApp(deps: BridgeDeps = { dir: juniorDir() }) {
   );
 
   // M1-2: dispatcher long-poll + result/approval posts (fall under auth above).
-  // M1-3 mounts /api/status here.
   app.route("/api/agent", agentRoutes(dispatcher));
+
+  // M1-3: /api/status — bridge facts + provider availability + CLI detection.
+  app.route("/api", statusRoutes({ dir: deps.dir, dispatcher, ...deps.status }));
 
   app.notFound((c) => c.json({ error: "not found" }, 404));
   app.onError((err, c) => {
