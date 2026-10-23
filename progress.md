@@ -4,8 +4,8 @@
 > Plan of record: `plan.md` · Decision log: `docs/decisions.md` (created on first entry)
 
 **Updated:** 2026-10-23
-**Current milestone:** M1 — Bridge core (2/4: M1-1, M1-2 done)
-**Current task:** none claimed (**next up: M1-3** `/api/status` + CLI detection)
+**Current milestone:** M1 — Bridge core (3/4: M1-1..M1-3 done)
+**Current task:** none claimed (**next up: M1-4** guard port)
 **Current blockers:** none
 
 ---
@@ -15,7 +15,7 @@
 | Milestone | State | Notes |
 |---|---|---|
 | M0 Scaffold + spike (protocol schemas, CLI flags spike, AI SDK spike) | ✅ done (4/4) | AI SDK pinned to **v7** in M0-4 (plan said v5 — decisions.md); M1 unblocked |
-| M1 Bridge core (Hono, auth, dispatcher, guard, status) | ◐ in progress | M1-1 + M1-2 done (server + dispatcher live); M1-3 next |
+| M1 Bridge core (Hono, auth, dispatcher, guard, status) | ◐ in progress | M1-1 + M1-2 + M1-3 done (status + CLI detection live); M1-4 (guard) last |
 | M2 Extension shell + chat (WXT, useChat, ⌘K picker, settings, history) | ⬜ blocked by M1 | parallelizable with M3 |
 | M3 Browser tool layer (executors, read_page, approvals, overlay) | ⬜ blocked by M1 | parallelizable with M2 |
 | M4 MCP server + agent paths (streamable HTTP, stdio proxy, CLI engine) | ⬜ blocked by M1+M3 | terminal-Claude e2e is the headline demo |
@@ -35,7 +35,7 @@
 
 - [x] M1-1 Hono app + config/token/pairing + auth middleware + CORS allowlist (plan §4.1–4.2) **+ review: complete the "frozen" protocol (add `ExtensionSettingsSchema` per plan §3 config block; add `PairingStatusSchema` for `GET /api/pairing` §HTTP-table; fix plan.md's stale `BridgeConfigSchema` name) + bridge `build`/`dev` scripts + protocol watch path (bridge is silently skipped by `pnpm -r build` today)** — all done. Protocol: `pairing.ts` (Status/Request/Result) + `ExtensionSettingsSchema`, plan §2/§3 updated (commit 90cf4a4). Bridge: config (fail-fast load, atomic save, JUNIOR_HOME override), 0600 token, §4.1 pairing window via marker file (`junior-bridge pair`), bearer auth (sha256-digest constant-time compare, per-request token read), deny-by-default CORS (echo + PNA for chrome-extension://[a-p]{32} wildcard + loopback — decisions.md), rate-limit.ts staged for M4 /mcp, `junior-bridge serve|pair` bin, build/dev/start scripts. Gates: `pnpm -r typecheck/test` (26 protocol + 29 bridge), lint, format:check all green. Acceptance (live curl vs `node apps/bridge/dist/bin.js serve`, JUNIOR_HOME=tmpdir): health `{"ok":true} 200`; pairing status `{tokenRequired:true,tokenSet:true}`; mismatch POST → 403 + hint; `pair` → POST → `{"ok":true,"alreadyPaired":false}` + token file mode 600 + window consumed; idempotent re-POST → `alreadyPaired:true`; wrong token → 403; `/api/status` no-token 401 / with-token 404 (route lands M1-3); evil Origin → zero access-control headers, extension Origin echoed, preflight 204 with methods/headers/PNA/max-age; `ss` shows `127.0.0.1:8620` only. Commits 90cf4a4, d4656c6
 - [x] M1-2 Dispatcher: queue, futures, long-poll endpoints, approvals-on-queue (§4.3) + fake executor tests **+ review: tighten `QueueItemSchema` to a discriminated union (kind↔payload — currently both members optional, queue.ts) + cross-check `engine`/`provider` defaults in `ChatRequestBodySchema` (currently sanctions invalid api+claude-cli combo)** — all done. Protocol: `queue.ts` is a `z.discriminatedUnion("kind", …)` (payload-less items can't parse; consumers narrow for free); `chat.ts` provider default → `anthropic` + `.refine((b) => (b.engine === "cli") === (b.provider === "claude-cli"))` (decisions.md 2026-10-23, commit 75e0c32). Bridge: `dispatcher/queue.ts` — AsyncQueue FIFO long-poll (unref'd timers), futures Map, `dispatch` with ActionGuard seam (deny / approval / allow), 120 s default timeout distinguishing not-connected, `dispose()` seam for M4-5; `dispatcher/approvals.ts` — 120 s window, USER_DENIED / BLOCKED_BY_POLICY strings, no-panel ⇒ immediate deny; `dispatcher/routes.ts` — `?timeout` clamp 1–20 s (default 15), next-action returns frozen QueueItem JSON or `{item: null}`, bad bodies 400, unknown ids `{delivered: false}`. Gates: `pnpm -r typecheck/test` (27 protocol + 58 bridge) + lint + format:check green. Acceptance: FakeExecutor wire round-trips through the real Hono app (poll → execute → `ok` with result; approval "once" → action executes; "deny" → `USER_DENIED`, zero executions; unanswered card → default-deny; no panel → immediate deny) + live curl vs `node apps/bridge/dist/bin.js serve` (JUNIOR_HOME=tmpdir): health ok; next-action 401 no-token / 403 wrong-token; idle `?timeout=2` held the socket 2.018 s → `{"item":null}`; garbage body 400; stale ids `{delivered:false}`. Commits 75e0c32, 1b3c41b
-- [ ] M1-3 `/api/status` + CLI detection (port `modelbridge-clone/core/auth_status.py`)
+- [x] M1-3 `/api/status` + CLI detection (port `modelbridge-clone/core/auth_status.py`) — done. `apps/bridge/src/cli-detect.ts`: `resolveClaudePath` (cliPath override fail-loud > PATH scan > WinGet `*ClaudeCode*` glob + npm-roaming candidates, port of config.py:49–71) + `parseClaudeAuthStatus` (brace-scan port, + `authMethod`) + `probeClaude` (concurrent `--version` + `auth status`, 12 s cap, CLAUDE_* env stripped, win32 `.cmd` via `cmd.exe /d /s /c`); `apps/bridge/src/status.ts`: `statusRoutes` — config loaded per request, `buildProviders` pure (claude-cli / anthropic / openai-compatible entries), `apiLevel: 1`, bridge version from package.json relative to module. Gates: `pnpm -r typecheck/test/build` + lint + format:check green (27 protocol + **82 bridge** + 5 spikes). Acceptance: unit suites cover parse/resolve/probe/route (incl. queueDepth 1→0 around an in-flight dispatch, browserConnected ping flip, cliPath passthrough, malformed config → 500); live curl vs `node apps/bridge/dist/bin.js serve` (JUNIOR_HOME=tmpdir): no-token 401, wrong-token 403, with-token → real detection `{"id":"claude-cli","available":true,"detail":"claude 2.1.309 — logged in (api_key)"}`, anthropic unavailable (no key), `browserConnected:false` → `true` after one next-action poll, `queueDepth:0`. plan §4.5 probe description rewritten to match. Commits 7b36372, 0f6d4ed
 - [ ] M1-4 Guard port: URL validation, sensitive tables, permission matrix + unit tests (§4.4, §6.3) **+ review: land the PURE guard tables/matrix in `@junior/protocol` (bridge keeps stateful enforcement only) — M3's extension-guard subagent must share it without importing bridge internals (plan §5.2 guard + §11.3)**
 
 ## M2 checklist
@@ -124,6 +124,12 @@
 - [bridge] `junior-bridge pair` (separate process) talks to the running server via a marker file (`~/.junior/pairing-window.json`, expiry inside) — the server reads the token file per request (no cache) so clears/sets land immediately; no admin endpoint needed. POST /api/pairing can only SET a token while a window is open, so a CORS-blinded page can't pre-seed the token.
 - [hono] preflights never carry `Authorization` — the CORS middleware must answer OPTIONS before/without auth (bearerAuth skips OPTIONS too).
 
+### 2026-10-23 (M1-3 status + CLI detection session — Claude Code 2.1.309)
+- [cli] `claude auth status` EXISTS in 2.1.309, exits 0, prints pretty JSON: `{loggedIn, authMethod, apiProvider, analyticsDisabled, projectsDirectory, configDirectory, apiKeySource}` — `email`/`orgName` appear only on OAuth logins (api_key logins have account=null); ModelBridge's parser ports verbatim. `--version` prints `2.1.309 (Claude Code)`.
+- [node] Node ≥ 18.20 spawns of `.cmd`/`.bat` hard-fail EINVAL without a shell (CVE-2024-27980) → cli-detect routes those through `cmd.exe /d /s /c` with the exe quoted; branch is untestable on this linux box (flagged as an M5 seed).
+- [node] `spawn`'s `stdio` needs a MUTABLE tuple — `["ignore","pipe","pipe"] as const` fails TS2769 against `StdioOptions`; type it `as ["ignore","pipe","pipe"]`.
+- [hono] Nested `app.route("/api", …)` alongside `app.route("/api/agent", …)` composes fine under the `/api/*` auth middleware — status lands behind the token with zero auth changes.
+
 ### 2026-10-23 (M1-2 dispatcher session — zod 4.6.5, hono 4.13.13)
 - [zod] `z.discriminatedUnion` members take `.default()` on non-discriminator fields fine, but discriminators should stay plain literals (docs list literal/enum/null/undefined) — no defaulted-discriminator `{model}`-shorthand; ChatRequestBodySchema stayed a flat object + `.refine` instead (decisions.md).
 - [zod] Object-level `.refine` sees the post-defaults output (defaults fill in before refinements run); unrelated field issues SKIP refinements by default (`when` opt-in exists) — test refine failures with otherwise-valid siblings.
@@ -151,6 +157,8 @@
 - (from M1-1, 2026-10-23) **M2-1 must pin the extension id** (manifest `key` field) and then tighten `isAllowedOrigin` in `apps/bridge/src/auth.ts` from the `chrome-extension://[a-p]{32}` wildcard to the exact id (decisions.md 2026-10-23 — wildcard is safe only because every data route still demands the token).
 - (from M1-1, 2026-10-23) §4.2's "rate-limit POST /mcp" is implemented as `apps/bridge/src/rate-limit.ts` (30/min burst, tested) but NOT yet mounted anywhere — M4 must wire it into the `/mcp` route or the brake silently never engages.
 - (from M1-2, 2026-10-23) `ActionResultSchema` could tighten status↔payload consistency (`ok` ⇒ no `error`; `error`/`denied` ⇒ `error` present) — left loose for M3 executor ergonomics; revisit only if a real bug demands it.
+- (from M1-3, 2026-10-23) cli-detect's win32 branches (WinGet glob, npm-roaming shims, `cmd.exe /d /s /c` for `.cmd`) are unit-tested with fixtures but never exercised on real Windows — verify on a Windows box in the M5 hardening pass.
+- (from M1-3, 2026-10-23) `/api/status` spawns `claude --version` + `auth status` per call (ModelBridge parity, ~100 ms); if M2's picker ever polls it continuously, add a short TTL cache then — not before.
 
 ## Session log
 
@@ -164,3 +172,4 @@
 - 2026-10-23 · post-M0 review · architect subagent: green overall, protocol completeness amber; 5 course corrections folded into M1 checklist + 2 backlog seeds; gates re-verified live by reviewer · (bookkeeping commit)
 - 2026-10-23 · M1-1 · bridge core green: protocol pairing/settings schemas, Hono app + auth/CORS + §4.1 pairing flow, 29 tests + live curl acceptance; plan/decisions updated; M1 1/4 · 90cf4a4, d4656c6
 - 2026-10-23 · M1-2 · dispatcher green: AsyncQueue/futures + long-poll /api/agent/* + approvals-on-queue with fake-executor wire tests + live curl; review items landed (queue union, chat engine/provider check) → protocol 27 + bridge 58 tests; M1 2/4 · 75e0c32, 1b3c41b
+- 2026-10-23 · M1-3 · /api/status green: cli-detect port (auth_status.py + config.py:49–71) verified live against CLI 2.1.309, provider entries from config + detection, dispatcher freshness/queue depth; 82 bridge tests + live curl acceptance; plan §4.5 updated; M1 3/4 · 7b36372, 0f6d4ed
