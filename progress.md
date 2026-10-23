@@ -5,7 +5,7 @@
 
 **Updated:** 2026-10-23
 **Current milestone:** M2 — Extension shell + chat (5/5, complete)
-**Current task:** M3-1 executors + probe-before-act + resolver port (claimed 2026-10-23)
+**Current task:** none claimed (**next up: M3-2** read_page + vendored buildDomTree.js, per plan §8; M3-3 may run in parallel)
 **Current blockers:** none
 
 ---
@@ -48,7 +48,7 @@
 
 ## M3 checklist
 
-- [ ] M3-1 Executors: click/type/scroll/screenshot/get_active_tab + probe-before-act (§6.1 resolver)
+- [x] M3-1 Executors: click/type/scroll/screenshot/get_active_tab + probe-before-act (§6.1 resolver) — done. `lib/executors/`: `in-page.ts` juniorActionInPage (self-contained: 8-strategy resolver incl. `__junior_dom_map` index map, click/type probe facts + expect-check re-verify, per-char typing through the prototype value descriptor + Enter→requestSubmit, scroll; single entry because executeScript serializes only the body — decisions.md 2026-10-23) + `guard-mirror.ts` (§4.4 matrix over probed facts from PURE protocol tables: secret_field refuse every mode, private_network deny in auto, sensitive label/site/form carded even in auto, routine_supervised ask-parity) + `screenshot.ts` (scaledDims pure + createImageBitmap/OffscreenCanvas 1280px JPEG q0.6) + `index.ts` runner (ExecutorEnv injectable, restricted-page refusal, navigate validateAgentUrl defense-in-depth mirror, size-capped screenshot, read_page → M3-2 placeholder, ask() seam default-deny §6.3-3). 61 new tests (119 ext total) incl. runner-e2e running the REAL in-page fn against jsdom. Gates green (152 protocol + 134 bridge + 119 ext + 5 spikes; typecheck/build/lint/format). SW long-poll agent loop deliberately NOT here — it lands with M3-3 Port routing.
 - [ ] M3-2 `read_page` 4 modes + vendored `buildDomTree.js` + `__junior_dom_map` cache
 - [ ] M3-3 Approval cards + Port routing + 120 s default-deny + guard display
 - [ ] M3-4 Work overlay (thin border + pause) — port of Autono `content/content.js` trimmed
@@ -198,6 +198,16 @@
 
 
 
+### 2026-10-23 (M3-1 executors session — jsdom@30.1.3, wxt@0.21.4)
+
+- [jsdom] jsdom 30 HAS PointerEvent now — but `new PointerEvent(type, {view: window})` throws "member view is not of type Window" in some file realms (hit in the runner test file, not the direct-call file). Fix: omit `view` from UIEventInit entirely — optional in Chrome too, behavior identical. Don't pass `view` in synthetic events.
+- [jsdom] jsdom still has no `innerText` (textContent fallback exercised) and no `Element.prototype.scrollIntoView` / real `getBoundingClientRect` — stub per element (rects) and per prototype (scrollIntoView); `document.evaluate` (XPath 1.0) EXISTS and works.
+- [dom] The React controlled-input pattern works like this: frameworks replace the PROTOTYPE value descriptor (`HTMLInputElement.prototype.value`), not instance props. Executor typing must read `getOwnPropertyDescriptor(proto, "value")` per keystroke (Autono does; ported) — an instance-level override is correctly bypassed; a prototype-level tracker sees every char.
+- [chrome-api] `browser.tabs.captureVisibleTab` under @wxt-dev/browser types demands a numeric windowId (no optional/undefined overload) — pass `null as unknown as number` (Chrome's current-window form; same call Autono makes).
+- [ts] An async in-page function is fine for `executeScript({func})` (Chrome awaits the promise) — but every test call site needs `await`, and `await fn().ok` binds wrong (`(await fn()).ok`).
+- [autono] Autono's resolver has 8 strategies, not 6 (plan says 6): index → CSS → XPath → attributes → labels → text×3 passes → heuristic class/cursor/onclick → focused/single-input fallback. Ported all 8; also hardened: empty targets never attribute/text-match (`"" === ""` matched any attribute-less field in Autono) but keep strategy 8 reachable.
+- [autono] Autono's click dispatches a synthetic `click` MouseEvent AND then `el.click()` — two click events by design (site compatibility); ported and test-asserted.
+
 ### 2026-10-23 (M0-2 protocol session)
 
 - [zod] `zod@4.6.5` pinned exact in `@junior/protocol`; with package major 4, root `import { z } from "zod"` **is** the v4 API (no `zod/v4` subpath needed).
@@ -239,3 +249,4 @@
 - 2026-10-23 · M2-3 · chat green: /api/chat engine api (anthropic + openai-compatible; cli/agentMode 501 → M4) + ChatPanel (useChat, markdown streaming, minimal model row); messages field added to protocol chat schema (plan §3 updated); 9 bridge + 8 extension tests + live gateway stream through real bridge; M2 3/5 · b5aabc9
 - 2026-10-23 · M2-4 · picker+providers green: ⌘K palette (cmdk, groups/badges/recent) + Settings→Providers (masked key, CRUD, Test via new GET/PUT /api/config + POST /api/config/test) + chat fallback chain (probe/replay, maxRetries:0); 4 protocol + 22 bridge + 14 extension new/updated tests + live acceptance (masked GET, keep-existing PUT, 11 real gateway models, openrouter-401→anthropic FALLBACK_OK); 3 forks → decisions.md, plan §3/§4.5/§5.3 updated; M2 4/5 · 2549a38, 5dd922b, 9525a56
 - 2026-10-23 · M2-5 · history green: junior_sessions single store + last-active restore, 500 ms debounced writes + write-on-hide, search/rename/delete/markdown export, 200-cap trim notice; 26 new/updated extension tests (68 total ext) + all gates; **M2 complete → M3-1 next** · be5f6ff
+- 2026-10-23 · M3-1 · executors green: in-page juniorActionInPage (resolver 8 strategies + probe-before-act + click/type/scroll), guard-mirror over protocol tables, screenshot downscale, runner with ExecutorEnv/ask seams; navigate ride-along (validate mirror); 61 new ext tests (119) + full gates; deltas → decisions.md; M3 1/5 · 82a23d6
