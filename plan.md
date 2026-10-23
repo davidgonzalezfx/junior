@@ -194,15 +194,15 @@ export type BrowserAction = z.infer<typeof BrowserActionSchema>;
 ```
 
 ```ts
-// queue.ts — one envelope for both actions and approval requests (single poll channel)
-export const QueueItemSchema = z.object({
-  id: z.string().regex(/^[A-Za-z0-9_-]{8,128}$/),      // unguessable (crypto.randomUUID + hex)
-  kind: z.enum(["action", "approval"]),
-  action: BrowserActionSchema.optional(),
-  approval: ApprovalRequestSchema.optional(),
+// queue.ts — one channel for actions and approvals; kind↔payload is a discriminated
+// union (M1-2 review: the earlier all-optional shape let {kind:"action"} parse payload-less)
+const QueueItemFields = { id: z.string().regex(/^[A-Za-z0-9_-]{8,128}$/),   // unguessable (crypto.randomUUID)
   createdAt: z.number(),
-  timeoutMs: z.number().int().min(5_000).max(300_000).default(120_000),
-});
+  timeoutMs: z.number().int().min(5_000).max(300_000).default(120_000) };
+export const QueueItemSchema = z.discriminatedUnion("kind", [
+  z.object({ ...QueueItemFields, kind: z.literal("action"),   action: BrowserActionSchema }),
+  z.object({ ...QueueItemFields, kind: z.literal("approval"), approval: ApprovalRequestSchema }),
+]);
 export const ActionResultSchema = z.object({
   id: z.string(),
   status: z.enum(["ok", "error", "denied"]),
@@ -239,12 +239,14 @@ export const ApprovalDecisionSchema = z.object({
 // chat.ts — POST /api/chat body (AI SDK UI message stream on the response side)
 export const ChatRequestBodySchema = z.object({
   engine: z.enum(["api", "cli"]).default("api"),
-  provider: z.string().default("claude-cli"),   // "claude-cli" | "anthropic" | <openai-compatible id>
+  provider: z.string().min(1).default("anthropic"),  // "claude-cli" | "anthropic" | <openai-compatible id>
   model: z.string(),                            // e.g. "claude-sonnet-5-5" | "anthropic/claude-sonnet-5.5"
   agentMode: z.boolean().default(false),        // false = no browser tools registered
   cliTools: z.enum(["browser", "all"]).default("browser"),  // CLI engine: expose native tools too?
   system: z.string().max(8000).optional(),      // panel may prepend its own persona bit
-});
+}).refine((b) => (b.engine === "cli") === (b.provider === "claude-cli"));
+// engine/provider must agree (M1-2 review: the old defaults were the one invalid pair,
+// api+claude-cli); a minimal {model} body now parses to the valid api+anthropic combo.
 ```
 
 ```ts

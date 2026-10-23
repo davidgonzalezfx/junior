@@ -109,6 +109,7 @@ describe("QueueItemSchema + ActionResultSchema (plan §3)", () => {
       action: { kind: "click", target: "17" },
       createdAt: 1_760_000_000_000,
     });
+    expect(item.kind).toBe("action");
     expect(item.timeoutMs).toBe(120_000);
   });
 
@@ -123,11 +124,26 @@ describe("QueueItemSchema + ActionResultSchema (plan §3)", () => {
       },
       createdAt: 1_760_000_000_000,
     });
-    expect(item.approval?.reasonCodes).toEqual(["new_site"]);
+    if (item.kind !== "approval") throw new Error("discriminator did not narrow");
+    expect(item.approval.reasonCodes).toEqual(["new_site"]);
+  });
+
+  it("rejects kind/payload mismatches — an item without its payload never parses", () => {
+    const createdAt = 1_760_000_000_000;
+    const click = { kind: "click", target: "17" };
+    expect(
+      () => QueueItemSchema.parse({ id: "aaaaaaaa", kind: "action", createdAt }), // no action payload
+    ).toThrow();
+    expect(
+      () => QueueItemSchema.parse({ id: "aaaaaaaa", kind: "approval", createdAt }), // no approval payload
+    ).toThrow();
+    expect(() =>
+      QueueItemSchema.parse({ id: "aaaaaaaa", kind: "action", approval: click, createdAt }),
+    ).toThrow(); // wrong payload for the kind
   });
 
   it("rejects unguessable-id violations and out-of-range timeouts", () => {
-    const base = { kind: "action" as const, createdAt: 0 };
+    const base = { kind: "action" as const, action: { kind: "click", target: "1" }, createdAt: 0 };
     expect(() => QueueItemSchema.parse({ ...base, id: "short" })).toThrow(); // <8 chars
     expect(() => QueueItemSchema.parse({ ...base, id: "has spaces!!!" })).toThrow();
     expect(() => QueueItemSchema.parse({ ...base, id: "aaaaaaaa", timeoutMs: 1000 })).toThrow(); // <5s
@@ -143,19 +159,28 @@ describe("QueueItemSchema + ActionResultSchema (plan §3)", () => {
 });
 
 describe("ChatRequestBodySchema (plan §3)", () => {
-  it("applies all defaults to a minimal body", () => {
+  it("applies all defaults to a minimal body as the valid api+anthropic pair", () => {
     expect(ChatRequestBodySchema.parse({ model: "claude-sonnet-5-5" })).toEqual({
       engine: "api",
-      provider: "claude-cli",
+      provider: "anthropic",
       model: "claude-sonnet-5-5",
       agentMode: false,
       cliTools: "browser",
     });
   });
 
-  it("keeps unknown engines/providers out", () => {
+  it("keeps unknown engines/providers and mismatched engine/provider pairs out", () => {
     expect(() => ChatRequestBodySchema.parse({ model: "m", engine: "ssh" })).toThrow();
     expect(() => ChatRequestBodySchema.parse({ model: "m", cliTools: "none" })).toThrow();
+    // The M1-2 review case: api engine can never drive the claude-cli provider…
+    expect(() =>
+      ChatRequestBodySchema.parse({ model: "m", engine: "api", provider: "claude-cli" }),
+    ).toThrow(/claude-cli/);
+    // …and engine cli implies provider claude-cli (the anthropic default is rejected).
+    expect(() => ChatRequestBodySchema.parse({ model: "m", engine: "cli" })).toThrow();
+    expect(
+      ChatRequestBodySchema.parse({ model: "m", engine: "cli", provider: "claude-cli" }),
+    ).toMatchObject({ engine: "cli", provider: "claude-cli", cliTools: "browser" });
   });
 });
 

@@ -95,3 +95,19 @@ exact id when M2-1 adds a manifest key. Choice: **(b)**. A foreign origin gains 
 data route demands the pairing token (401/403), so the wildcard only exposes `GET /api/health` +
 `GET /api/pairing` booleans to other installed extensions — acceptable until the pin lands. Follow-up
 recorded as a backlog seed (tighten `isAllowedOrigin` in M2-1). Affects: plan §4.2, `apps/bridge/src/auth.ts`.
+
+## 2026-10-23 · Queue envelope tightened to a kind↔payload union; chat engine/provider validated (M1-2)
+
+Context: the post-M0 architect review flagged two protocol holes, both now fixed as part of M1-2.
+(1) `QueueItemSchema` had `action`/`approval` both optional, so `{kind:"action"}` parsed with no
+payload. Options: (a) flat object + `.refine` on kind↔payload; (b) `z.discriminatedUnion("kind", …)`
+with one member per payload. Choice: **(b)** — narrowing comes free at every consumer
+(`item.kind === "action"` ⇒ `item.action` is present and typed), a wrong kind reports once instead of
+leaking payload errors, and the wire shape is unchanged. (2) `ChatRequestBodySchema`'s defaults
+(`engine:"api"` + `provider:"claude-cli"`) combined into the one invalid engine/provider pair. Options:
+(a) a second discriminated union over the whole body (zod v4 discriminators are plain literals — a
+defaulted `engine` would cost the `{model}` minimal-body shorthand); (b) flat object, `provider`
+default flipped to `"anthropic"`, plus a `.refine` biconditional
+`(engine === "cli") === (provider === "claude-cli")`. Choice: **(b)** — keeps the plan's flat body
+shape and minimal-body ergonomics, and mismatches get one clear error message.
+Affects: `packages/protocol/src/queue.ts`, `packages/protocol/src/chat.ts`, plan §3 snippets.
