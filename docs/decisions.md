@@ -80,3 +80,7 @@ current-major docs by default — a v5 pin would force version-pinned doc pulls 
 spike, instead of mid-M2. Note: CLAUDE.md's library list still says "Vercel AI SDK v5" — left untouched
 (user-owned file); this entry is the source of truth. Affects: plan §2 row 3, §3 comment, §4.5 snippet,
 §5.3, §7 rules, §8 M0-4.
+
+> **Amendment (2026-10-23, post-M0 review):** the note above saying CLAUDE.md was "left untouched" was
+> superseded the same day — the user directed the update, and CLAUDE.md's library list now says
+> "Vercel AI SDK v7" (commit 60f8937).

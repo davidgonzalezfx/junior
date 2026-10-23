@@ -31,10 +31,12 @@
 
 ## M1 checklist
 
-- [ ] M1-1 Hono app + config/token/pairing + auth middleware + CORS allowlist (plan §4.1–4.2)
-- [ ] M1-2 Dispatcher: queue, futures, long-poll endpoints, approvals-on-queue (§4.3) + fake executor tests
+> Annotated by the post-M0 architect review (2026-10-23) — those "+ review" items are part of the task now.
+
+- [ ] M1-1 Hono app + config/token/pairing + auth middleware + CORS allowlist (plan §4.1–4.2) **+ review: complete the "frozen" protocol (add `ExtensionSettingsSchema` per plan §3 config block; add `PairingStatusSchema` for `GET /api/pairing` §HTTP-table; fix plan.md's stale `BridgeConfigSchema` name) + bridge `build`/`dev` scripts + protocol watch path (bridge is silently skipped by `pnpm -r build` today)**
+- [ ] M1-2 Dispatcher: queue, futures, long-poll endpoints, approvals-on-queue (§4.3) + fake executor tests **+ review: tighten `QueueItemSchema` to a discriminated union (kind↔payload — currently both members optional, queue.ts) + cross-check `engine`/`provider` defaults in `ChatRequestBodySchema` (currently sanctions invalid api+claude-cli combo)**
 - [ ] M1-3 `/api/status` + CLI detection (port `modelbridge-clone/core/auth_status.py`)
-- [ ] M1-4 Guard port: URL validation, sensitive tables, permission matrix + unit tests (§4.4, §6.3)
+- [ ] M1-4 Guard port: URL validation, sensitive tables, permission matrix + unit tests (§4.4, §6.3) **+ review: land the PURE guard tables/matrix in `@junior/protocol` (bridge keeps stateful enforcement only) — M3's extension-guard subagent must share it without importing bridge internals (plan §5.2 guard + §11.3)**
 
 ## M2 checklist
 
@@ -121,6 +123,13 @@
 - [toolchain] Green-gate lint is **`pnpm lint` (root `eslint .`)** — `pnpm -r lint` hard-fails while the extension stub has no scripts; switch to `-r` only when workspaces define their own lint scripts. (M0-3 session hit this; also `pnpm -r build` failed once with a transient recursive-exec error and passed on immediate rerun.)
 
 
+## Backlog seeds
+
+> Ideas discovered mid-work land here (protocol: CLAUDE.md). Never into the current diff.
+
+- (from post-M0 review 2026-10-23) **Early M4-1 probe (~30 min, could ride along any M1 session with the bridge up):** verify a *reachable* MCP loopback — `--mcp-config` → `http://127.0.0.1:8620/mcp` **with the token in headers** (`~/.junior/mcp.json` header shape unverified; M0-3 only proved unreachable = non-fatal) and confirm stream-json `tool_use` events carry `mcp__junior_browser__*` names.
+- (from post-M0 review 2026-10-23) M2 must not assume the OpenAI-compatible happy path: mock doesn't cover in-stream error frames on HTTP 200 (OpenRouter's documented failure mode), reasoning-token deltas, slashed routing model names. Revisit when M2-3 wires the fallback chain.
+
 ## Session log
 
 > One line per session: `date · task(s) · outcome · commit`
@@ -130,3 +139,4 @@
 - 2026-10-23 · M0-2 · all §3 schemas + config.ts frozen, 20 round-trip tests green, 2 forks → docs/decisions.md · 3cd22f4
 - 2026-10-23 · M0-3 · CLI flag matrix 10/10 vs CLI 2.1.309; --thinking/--permission-prompt-tool/--session-id surprises; plan §4.5 args rewritten; 3 forks → docs/decisions.md · c56ef25
 - 2026-10-23 · M0-4 · AI SDK pinned v7 (plan said v5); 5/5 spike tests incl. real-gateway streaming + tool-loop wire map; plan §2/§4.5/§5.3/§8 updated; 1 fork → docs/decisions.md; M0 complete → M1-1 next · 0f1e6fa
+- 2026-10-23 · post-M0 review · architect subagent: green overall, protocol completeness amber; 5 course corrections folded into M1 checklist + 2 backlog seeds; gates re-verified live by reviewer · (bookkeeping commit)
