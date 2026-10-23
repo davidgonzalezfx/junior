@@ -4,8 +4,8 @@
 > Plan of record: `plan.md` · Decision log: `docs/decisions.md` (created on first entry)
 
 **Updated:** 2026-10-23
-**Current milestone:** M0 — Scaffold + spike
-**Current task:** none claimed (M0-4 done — M0 complete; **next up: M1-1** Hono app + auth)
+**Current milestone:** M1 — Bridge core (1/4: M1-1 done)
+**Current task:** none claimed (**next up: M1-2** dispatcher + long-poll + approvals)
 **Current blockers:** none
 
 ---
@@ -15,7 +15,7 @@
 | Milestone | State | Notes |
 |---|---|---|
 | M0 Scaffold + spike (protocol schemas, CLI flags spike, AI SDK spike) | ✅ done (4/4) | AI SDK pinned to **v7** in M0-4 (plan said v5 — decisions.md); M1 unblocked |
-| M1 Bridge core (Hono, auth, dispatcher, guard, status) | ⬜ up next | |
+| M1 Bridge core (Hono, auth, dispatcher, guard, status) | ◐ in progress | M1-1 done (server runs + curl-verified); M1-2 next |
 | M2 Extension shell + chat (WXT, useChat, ⌘K picker, settings, history) | ⬜ blocked by M1 | parallelizable with M3 |
 | M3 Browser tool layer (executors, read_page, approvals, overlay) | ⬜ blocked by M1 | parallelizable with M2 |
 | M4 MCP server + agent paths (streamable HTTP, stdio proxy, CLI engine) | ⬜ blocked by M1+M3 | terminal-Claude e2e is the headline demo |
@@ -33,7 +33,7 @@
 
 > Annotated by the post-M0 architect review (2026-10-23) — those "+ review" items are part of the task now.
 
-- [ ] M1-1 Hono app + config/token/pairing + auth middleware + CORS allowlist (plan §4.1–4.2) **+ review: complete the "frozen" protocol (add `ExtensionSettingsSchema` per plan §3 config block; add `PairingStatusSchema` for `GET /api/pairing` §HTTP-table; fix plan.md's stale `BridgeConfigSchema` name) + bridge `build`/`dev` scripts + protocol watch path (bridge is silently skipped by `pnpm -r build` today)**
+- [x] M1-1 Hono app + config/token/pairing + auth middleware + CORS allowlist (plan §4.1–4.2) **+ review: complete the "frozen" protocol (add `ExtensionSettingsSchema` per plan §3 config block; add `PairingStatusSchema` for `GET /api/pairing` §HTTP-table; fix plan.md's stale `BridgeConfigSchema` name) + bridge `build`/`dev` scripts + protocol watch path (bridge is silently skipped by `pnpm -r build` today)** — all done. Protocol: `pairing.ts` (Status/Request/Result) + `ExtensionSettingsSchema`, plan §2/§3 updated (commit 90cf4a4). Bridge: config (fail-fast load, atomic save, JUNIOR_HOME override), 0600 token, §4.1 pairing window via marker file (`junior-bridge pair`), bearer auth (sha256-digest constant-time compare, per-request token read), deny-by-default CORS (echo + PNA for chrome-extension://[a-p]{32} wildcard + loopback — decisions.md), rate-limit.ts staged for M4 /mcp, `junior-bridge serve|pair` bin, build/dev/start scripts. Gates: `pnpm -r typecheck/test` (26 protocol + 29 bridge), lint, format:check all green. Acceptance (live curl vs `node apps/bridge/dist/bin.js serve`, JUNIOR_HOME=tmpdir): health `{"ok":true} 200`; pairing status `{tokenRequired:true,tokenSet:true}`; mismatch POST → 403 + hint; `pair` → POST → `{"ok":true,"alreadyPaired":false}` + token file mode 600 + window consumed; idempotent re-POST → `alreadyPaired:true`; wrong token → 403; `/api/status` no-token 401 / with-token 404 (route lands M1-3); evil Origin → zero access-control headers, extension Origin echoed, preflight 204 with methods/headers/PNA/max-age; `ss` shows `127.0.0.1:8620` only. Commits 90cf4a4, d4656c6
 - [ ] M1-2 Dispatcher: queue, futures, long-poll endpoints, approvals-on-queue (§4.3) + fake executor tests **+ review: tighten `QueueItemSchema` to a discriminated union (kind↔payload — currently both members optional, queue.ts) + cross-check `engine`/`provider` defaults in `ChatRequestBodySchema` (currently sanctions invalid api+claude-cli combo)**
 - [ ] M1-3 `/api/status` + CLI detection (port `modelbridge-clone/core/auth_status.py`)
 - [ ] M1-4 Guard port: URL validation, sensitive tables, permission matrix + unit tests (§4.4, §6.3) **+ review: land the PURE guard tables/matrix in `@junior/protocol` (bridge keeps stateful enforcement only) — M3's extension-guard subagent must share it without importing bridge internals (plan §5.2 guard + §11.3)**
@@ -115,6 +115,15 @@
 - [toolchain] `new Request(url, { body: Readable.toWeb(req), duplex: "half" })` — `duplex` is an undici extension absent from DOM `RequestInit`; type the init as `RequestInit & { duplex?: "half" }` (plain `as any` on the value doesn't silence TS2353).
 
 
+### 2026-10-23 (M1-1 bridge session — hono@4.13.13, @hono/node-server@2.1.5, tsx@4.23.15)
+- [pnpm] pnpm 12.15 replaced the `onlyBuiltDependencies` yaml list with an `allowBuilds: {pkg: true}` map — a NEW transitive dep with build scripts (tsx → esbuild@0.28.2) hard-errors `pnpm add`/`pnpm install` (`ERR_PNPM_IGNORED_BUILDS`) even though the old list names it; fix = `pnpm approve-builds <pkg>` (rewrites the yaml itself).
+- [pnpm] `pnpm add` writes caret ranges — Junior convention is exact pins; rewrite `^x.y.z` → `x.y.z` after adding (hono 4.13.13, @hono/node-server 2.1.5, tsx 4.23.15).
+- [hono] `serve({ fetch: app.fetch, port, hostname })` from `@hono/node-server` — `hostname` IS honored (acceptance: `ss -tln` shows `127.0.0.1:8620` only). Built-in `hono/cors` is unusable for deny-by-default: its `origin` function form must return SOME origin (falls back to a default), never "none". Custom middleware (`c.header()` before `await next()`, early `c.body(null, 204)` for OPTIONS) is ~30 lines and exact.
+- [hono] middleware + handlers run in registration order, but bearer auth is route-order-proof: it checks `PUBLIC_ROUTES` (health, GET /api/pairing) inside the middleware instead of relying on registration order. `createMiddleware` from `hono/factory`; `app.request()` = in-process Request/Response harness for tests, no listener needed.
+- [hono] headers are case-insensitive in `c.header()`/`res.headers.get()` — tests use lowercase wire names (`access-control-allow-private-network`).
+- [bridge] `junior-bridge pair` (separate process) talks to the running server via a marker file (`~/.junior/pairing-window.json`, expiry inside) — the server reads the token file per request (no cache) so clears/sets land immediately; no admin endpoint needed. POST /api/pairing can only SET a token while a window is open, so a CORS-blinded page can't pre-seed the token.
+- [hono] preflights never carry `Authorization` — the CORS middleware must answer OPTIONS before/without auth (bearerAuth skips OPTIONS too).
+
 ### 2026-10-23 (M0-2 protocol session)
 - [zod] `zod@4.6.5` pinned exact in `@junior/protocol`; with package major 4, root `import { z } from "zod"` **is** the v4 API (no `zod/v4` subpath needed).
 - [zod] v4 `.default()` short-circuits parsing and requires the value to match the schema's **output** type: `ProvidersConfigSchema.default({})` fails to compile when a member field has its own default → `.default({ openaiCompatible: [] })`. Keys with `.default()` are optional in `z.input`, required in `z.output`/`z.infer`.
@@ -129,6 +138,8 @@
 
 - (from post-M0 review 2026-10-23) **Early M4-1 probe (~30 min, could ride along any M1 session with the bridge up):** verify a *reachable* MCP loopback — `--mcp-config` → `http://127.0.0.1:8620/mcp` **with the token in headers** (`~/.junior/mcp.json` header shape unverified; M0-3 only proved unreachable = non-fatal) and confirm stream-json `tool_use` events carry `mcp__junior_browser__*` names.
 - (from post-M0 review 2026-10-23) M2 must not assume the OpenAI-compatible happy path: mock doesn't cover in-stream error frames on HTTP 200 (OpenRouter's documented failure mode), reasoning-token deltas, slashed routing model names. Revisit when M2-3 wires the fallback chain.
+- (from M1-1, 2026-10-23) **M2-1 must pin the extension id** (manifest `key` field) and then tighten `isAllowedOrigin` in `apps/bridge/src/auth.ts` from the `chrome-extension://[a-p]{32}` wildcard to the exact id (decisions.md 2026-10-23 — wildcard is safe only because every data route still demands the token).
+- (from M1-1, 2026-10-23) §4.2's "rate-limit POST /mcp" is implemented as `apps/bridge/src/rate-limit.ts` (30/min burst, tested) but NOT yet mounted anywhere — M4 must wire it into the `/mcp` route or the brake silently never engages.
 
 ## Session log
 
@@ -140,3 +151,4 @@
 - 2026-10-23 · M0-3 · CLI flag matrix 10/10 vs CLI 2.1.309; --thinking/--permission-prompt-tool/--session-id surprises; plan §4.5 args rewritten; 3 forks → docs/decisions.md · c56ef25
 - 2026-10-23 · M0-4 · AI SDK pinned v7 (plan said v5); 5/5 spike tests incl. real-gateway streaming + tool-loop wire map; plan §2/§4.5/§5.3/§8 updated; 1 fork → docs/decisions.md; M0 complete → M1-1 next · 0f1e6fa
 - 2026-10-23 · post-M0 review · architect subagent: green overall, protocol completeness amber; 5 course corrections folded into M1 checklist + 2 backlog seeds; gates re-verified live by reviewer · (bookkeeping commit)
+- 2026-10-23 · M1-1 · bridge core green: protocol pairing/settings schemas, Hono app + auth/CORS + §4.1 pairing flow, 29 tests + live curl acceptance; plan/decisions updated; M1 1/4 · 90cf4a4, d4656c6
