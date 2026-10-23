@@ -1,19 +1,99 @@
-// Panel shell — M2-2: onboarding on first run + bridge status bar. M2-4: chat + ⌘K
-// picker + Settings → Providers (plan §8). History (M2-5) lands later.
-import { useEffect, useState } from "react";
+// Panel shell — M2-2: onboarding on first run + bridge status bar. M2-4: chat +
+// ⌘K picker + Settings → Providers. M2-5: session history — App owns the active
+// session and the debounced history store (plan §5.3: junior_sessions, 500 ms
+// debounced writes + write-on-hide, 200-session cap with export prompt).
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { UIMessage } from "ai";
 import { BridgeStatusBar } from "@/components/bridge-status-bar";
 import { ChatPanel } from "@/components/chat-panel";
+import { HistoryPanel } from "@/components/history/history-panel";
 import { Onboarding } from "@/components/onboarding";
 import { ProvidersSettings } from "@/components/settings/providers-settings";
+import {
+  SessionStore,
+  attachWriteOnHide,
+  deriveTitle,
+  emptySession,
+  getActiveSessionId,
+  loadSessions,
+  renameSession,
+  setActiveSessionId,
+  type StoredSession,
+} from "@/lib/history";
 import { isOnboarded } from "@/lib/settings";
 
-type View = "loading" | "onboarding" | "chat" | "providers";
+type View = "loading" | "onboarding" | "chat" | "history" | "providers";
 
 export default function App() {
   const [view, setView] = useState<View>("loading");
+  const [session, setSession] = useState<StoredSession | null>(null);
+  const [trimmed, setTrimmed] = useState<StoredSession[]>([]);
+  const storeRef = useRef<SessionStore | null>(null);
+  // Latest active session (incl. renames) — handleRecord reads it to keep the
+  // user's title across debounced writes.
+  const sessionRef = useRef<StoredSession | null>(null);
 
+  if (storeRef.current === null) {
+    storeRef.current = new SessionStore({
+      onTrimmed: (dropped) => setTrimmed((prev) => [...prev, ...dropped]),
+    });
+  }
+  const store = storeRef.current;
+
+  // Write-on-hide: panel close lands any pending snapshot immediately (§5.3).
+  useEffect(() => attachWriteOnHide(store), [store]);
+
+  // First run → onboarding; otherwise the restored session below flips the view.
   useEffect(() => {
-    void isOnboarded().then((onboarded) => setView(onboarded ? "chat" : "onboarding"));
+    void isOnboarded().then((onboarded) => {
+      if (!onboarded) setView("onboarding");
+    });
+  }, []);
+
+  // Restore the last active session on open; fall back to the newest, else fresh.
+  useEffect(() => {
+    void (async () => {
+      const [sessions, activeId] = await Promise.all([loadSessions(), getActiveSessionId()]);
+      const restored = sessions.find((s) => s.id === activeId) ?? sessions[0] ?? emptySession();
+      sessionRef.current = restored;
+      setSession(restored);
+      void setActiveSessionId(restored.id);
+      setView((v) => (v === "loading" ? "chat" : v));
+    })();
+  }, []);
+
+  const pointAt = useCallback((next: StoredSession) => {
+    sessionRef.current = next;
+    setSession(next);
+    void setActiveSessionId(next.id);
+  }, []);
+
+  // ChatPanel calls this on every messages change; the store debounces the write.
+  const handleRecord = useCallback(
+    (messages: UIMessage[]) => {
+      const base = sessionRef.current;
+      // An untouched empty chat never reaches storage.
+      if (base === null || messages.length === 0) return;
+      const next: StoredSession = {
+        ...base,
+        messages,
+        updatedAt: Date.now(),
+        title: base.renamed ? base.title : deriveTitle(messages),
+      };
+      sessionRef.current = next;
+      store.record(next);
+    },
+    [store],
+  );
+
+  const handleRename = useCallback((title: string) => {
+    const base = sessionRef.current;
+    if (base === null) return;
+    const next = { ...base, title: title.trim() || base.title, renamed: true };
+    sessionRef.current = next;
+    setSession(next);
+    // Persist for the history list; a not-yet-recorded chat is simply absent.
+    void renameSession(base.id, next.title);
   }, []);
 
   if (view === "loading") {
@@ -27,9 +107,36 @@ export default function App() {
       <BridgeStatusBar />
       {view === "providers" ? (
         <ProvidersSettings onBack={() => setView("chat")} />
-      ) : (
+      ) : view === "history" && session !== null ? (
+        <HistoryPanel
+          activeId={session.id}
+          trimmed={trimmed}
+          onDismissTrimmed={() => setTrimmed([])}
+          onOpen={(id) => {
+            void loadSessions().then((sessions) => {
+              const picked = sessions.find((s) => s.id === id);
+              if (picked !== undefined) pointAt(picked);
+              setView("chat");
+            });
+          }}
+          onRenameActive={handleRename}
+          onNew={() => {
+            pointAt(emptySession());
+            setView("chat");
+          }}
+          onBack={() => setView("chat")}
+        />
+      ) : session !== null ? (
         <div className="flex flex-1 flex-col gap-3 p-4">
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              aria-label="Open History"
+              className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              onClick={() => setView("history")}
+            >
+              History
+            </button>
             <button
               type="button"
               aria-label="Open Settings"
@@ -39,9 +146,9 @@ export default function App() {
               Settings
             </button>
           </div>
-          <ChatPanel />
+          <ChatPanel session={session} onRecord={handleRecord} />
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

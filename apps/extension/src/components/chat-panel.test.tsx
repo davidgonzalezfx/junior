@@ -1,12 +1,19 @@
 // M2-3 acceptance at the panel level: ChatPanel → POST /api/chat with the Bearer token +
 // api-engine body, markdown streamed into the DOM (jsdom; IS_REACT_ACT_ENVIRONMENT per the
-// M0-4 learning — RTL 16 + React 19 under vitest jsdom).
+// M0-4 learning — RTL 16 + React 19 under vitest jsdom). M2-5: the active session is a
+// prop — restored messages seed the transcript, finished exchanges flow to onRecord.
 /** @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fakeBrowser } from "wxt/testing/fake-browser";
+import type { UIMessage } from "ai";
 import { ChatPanel } from "@/components/chat-panel";
+import { emptySession } from "@/lib/history";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+
+// Nothing in WxtVitest resets fakeBrowser automatically — do it per test.
+beforeEach(() => fakeBrowser.reset());
 
 // Radix Dialog (under cmdk) observes content size — jsdom has no ResizeObserver.
 class ResizeObserverStub {
@@ -111,7 +118,7 @@ describe("ChatPanel", () => {
     });
     vi.stubGlobal("fetch", stubFetch());
 
-    render(<ChatPanel />);
+    render(<ChatPanel session={emptySession()} onRecord={vi.fn()} />);
     const textarea = await screen.findByLabelText("message");
     fireEvent.change(textarea, { target: { value: "hi there" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
@@ -133,6 +140,48 @@ describe("ChatPanel", () => {
     expect(Array.isArray(req.body.messages)).toBe(true);
   });
 
+  it("M2-5: an exchanged conversation reaches onRecord with a derived title-ready list", async () => {
+    await browser.storage.local.set({
+      junior_bridge_token: "t".repeat(64),
+      junior_default_provider: { providerId: "openrouter", model: "vendor/model-x" },
+    });
+    vi.stubGlobal("fetch", stubFetch());
+    const onRecord = vi.fn();
+
+    render(<ChatPanel session={emptySession()} onRecord={onRecord} />);
+    const textarea = await screen.findByLabelText("message");
+    fireEvent.change(textarea, { target: { value: "remember BANANA42" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      const last = onRecord.mock.calls.at(-1)?.[0] as UIMessage[] | undefined;
+      expect(last).toHaveLength(2); // user + assistant
+      expect(last?.[0]?.parts[0]).toMatchObject({ type: "text", text: "remember BANANA42" });
+      // The assistant message leads with a step-start part; assert the text part.
+      expect(last?.[1]?.parts.some((p) => p.type === "text" && p.text === "Hello **world**")).toBe(
+        true,
+      );
+    });
+  });
+
+  it("M2-5: a stored session's messages render on mount (history restore)", async () => {
+    await browser.storage.local.set({
+      junior_bridge_token: "t".repeat(64),
+      junior_default_provider: { providerId: "openrouter", model: "vendor/model-x" },
+    });
+    vi.stubGlobal("fetch", stubFetch());
+
+    const session = emptySession();
+    session.messages = [
+      { id: "u1", role: "user", parts: [{ type: "text", text: "remember BANANA42" }] },
+      { id: "a1", role: "assistant", parts: [{ type: "text", text: "BANANA42 noted." }] },
+    ];
+    render(<ChatPanel session={session} onRecord={vi.fn()} />);
+
+    expect(await screen.findByText("BANANA42 noted.")).toBeTruthy();
+    expect(screen.getByText("remember BANANA42")).toBeTruthy();
+  });
+
   it("⌘K flow: the badge opens the palette, picking a model retargets the next send + persists", async () => {
     await browser.storage.local.set({
       junior_bridge_token: "t".repeat(64),
@@ -140,7 +189,7 @@ describe("ChatPanel", () => {
     });
     vi.stubGlobal("fetch", stubFetch());
 
-    render(<ChatPanel />);
+    render(<ChatPanel session={emptySession()} onRecord={vi.fn()} />);
     await screen.findByLabelText("message");
 
     // The badge IS the palette trigger (plan §5.3).

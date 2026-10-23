@@ -1,10 +1,13 @@
 // ChatPanel — M2-4: plain chat over /api/chat (engine `api`) with markdown streaming
-// and the ⌘K provider/model palette (plan §5.3). History/virtualization/tool cards
-// land with M2-5/M3.
+// and the ⌘K provider/model palette (plan §5.3). M2-5: session persistence — the
+// active session (id + restored messages) comes from App, finished message lists
+// flow back through onRecord for the debounced history write. Tool cards land in M3.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
+import type { UIMessage } from "ai";
 import { BridgeUnreachableError, fetchStatus } from "@/lib/bridge-client";
 import { createChatTransport, resolveChatTarget, type ChatTarget } from "@/lib/chat";
+import type { StoredSession } from "@/lib/history";
 import {
   addRecentModel,
   getDefaultProvider,
@@ -26,7 +29,14 @@ interface Setup {
   recent: RecentModel[];
 }
 
-export function ChatPanel() {
+export interface ChatPanelProps {
+  /** The active session — restored messages seed useChat; the id keys the mount. */
+  session: StoredSession;
+  /** Called on every messages change; App owns the debounced history write. */
+  onRecord: (messages: UIMessage[]) => void;
+}
+
+export function ChatPanel({ session, onRecord }: ChatPanelProps) {
   const [setup, setSetup] = useState<Setup | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -72,10 +82,20 @@ export function ChatPanel() {
     );
   }
   if (setup === null) return <div className="flex-1" />;
-  return <Chat setup={setup} />;
+  // Keyed remount per session id — a history switch re-seeds useChat with the
+  // stored messages (useChat's `messages` option is initial-only, v7 docs).
+  return <Chat key={session.id} setup={setup} session={session} onRecord={onRecord} />;
 }
 
-function Chat({ setup }: { setup: Setup }) {
+function Chat({
+  setup,
+  session,
+  onRecord,
+}: {
+  setup: Setup;
+  session: StoredSession;
+  onRecord: (messages: UIMessage[]) => void;
+}) {
   const [target, setTarget] = useState<ChatTarget>(setup.target);
   const [recent, setRecent] = useState<RecentModel[]>(setup.recent);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -86,9 +106,18 @@ function Chat({ setup }: { setup: Setup }) {
     () => createChatTransport(setup.bridgeUrl, setup.token, target),
     [setup, target],
   );
-  const { messages, sendMessage, status, error, stop } = useChat({ transport });
+  const { messages, sendMessage, status, error, stop } = useChat({
+    id: session.id,
+    messages: session.messages,
+    transport,
+  });
 
   const busy = status === "submitted" || status === "streaming";
+
+  // Persist every messages change (debounced on App's side — 500 ms + write-on-hide).
+  useEffect(() => {
+    onRecord(messages);
+  }, [messages, onRecord]);
 
   // Keep the newest message in view while streaming (history virtualization is M2-5).
   // Property assignment, not scrollTo() — jsdom elements have no scrollTo.
