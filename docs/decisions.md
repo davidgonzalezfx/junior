@@ -84,3 +84,14 @@ spike, instead of mid-M2. Note: CLAUDE.md's library list still says "Vercel AI S
 > **Amendment (2026-10-23, post-M0 review):** the note above saying CLAUDE.md was "left untouched" was
 > superseded the same day — the user directed the update, and CLAUDE.md's library list now says
 > "Vercel AI SDK v7" (commit 60f8937).
+
+## 2026-10-23 · CORS allowlist takes any Chrome extension id until the manifest pins one (M1-1)
+
+Context: plan §4.2 scopes CORS to `chrome-extension://<our-id>`, but unpacked extensions get a
+machine-generated id (the manifest has no `key` field yet), so the bridge cannot know our id at M1.
+Options: (a) an `allowedOrigins` config field (frozen-protocol churn for a value we can't fill yet);
+(b) accept any `chrome-extension://[a-p]{32}` origin plus explicit loopback patterns, tightening to the
+exact id when M2-1 adds a manifest key. Choice: **(b)**. A foreign origin gains nothing readable: every
+data route demands the pairing token (401/403), so the wildcard only exposes `GET /api/health` +
+`GET /api/pairing` booleans to other installed extensions — acceptable until the pin lands. Follow-up
+recorded as a backlog seed (tighten `isAllowedOrigin` in M2-1). Affects: plan §4.2, `apps/bridge/src/auth.ts`.

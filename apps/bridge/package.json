@@ -3,12 +3,23 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Junior bridge — Hono on 127.0.0.1:8620: chat engines, dispatcher, MCP server (plan §4). Implementation starts M1-1.",
+  "description": "Junior bridge — Hono on 127.0.0.1:8620: chat engines, dispatcher, MCP server (plan §4).",
+  "bin": {
+    "junior-bridge": "dist/bin.js"
+  },
   "dependencies": {
-    "@junior/protocol": "workspace:*"
+    "@hono/node-server": "2.1.5",
+    "@junior/protocol": "workspace:*",
+    "hono": "4.13.13"
+  },
+  "devDependencies": {
+    "tsx": "4.23.15"
   },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "pnpm --filter @junior/protocol run build && tsx watch src/bin.ts serve",
+    "start": "node dist/bin.js",
     "typecheck": "tsc -p . --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run"
   }
 }

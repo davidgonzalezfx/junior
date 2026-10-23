@@ -111,12 +111,13 @@ junior/
 │        └─ config.ts             ← JuniorConfigSchema (§4.1), ExtensionSettingsSchema (§5.2)
 ├─ apps/
 │  ├─ bridge/                     ← name: @junior/bridge
-│  │  ├─ package.json             ← hono, @modelcontextprotocol/sdk, ai, @ai-sdk/anthropic,
-│  │  │                             @ai-sdk/openai-compatible, zod, tsx (dev)
+│  │  ├─ package.json             ← hono, @hono/node-server, @modelcontextprotocol/sdk, ai,
+│  │  │                             @ai-sdk/anthropic, @ai-sdk/openai-compatible, zod, tsx (dev)
 │  │  └─ src/
 │  │     ├─ index.ts              ← Hono app, mounts routers, binds 127.0.0.1:8620
 │  │     ├─ config.ts             ← load/save ~/.junior/config.json (port from ModelBridge core/config.py)
 │  │     ├─ auth.ts               ← token middleware (Authorization: Bearer <token>), CORS allowlist
+│  │     ├─ rate-limit.ts         ← sliding-window limiter (§4.2 quota-burn brake; mounted on /mcp in M4)
 │  │     ├─ status.ts             ← /api/status: CLI detection (ports ModelBridge core/auth_status.py)
 │  │     ├─ dispatcher/
 │  │     │  ├─ queue.ts           ← action queue + futures (port of server/routes_mcp.py:139–175)
@@ -304,7 +305,10 @@ same shape as ModelBridge `mcp_server.py` but **sending the token** from `~/.jun
   (port `AutonoSecurity.generatePairingToken`). Extension generates its own and calls `POST /api/pairing`;
   if a token is already set and doesn't match → 403, user must click **Pair** in the bridge console
   (`junior-bridge pair`) which clears the stored token for 60 s. (Simple, explicit, and fixes the
-  ModelBridge gap where tokens were sent but never checked.)
+  ModelBridge gap where tokens were sent but never checked.) Implementation (M1-1): the 60 s window is a
+  marker file (`~/.junior/pairing-window.json` with an expiry), so the `pair` subcommand — a separate
+  process — can open it for the running server without an admin endpoint; a token can only be *set*
+  while a window is open, never silently.
 
 ### 4.2 Auth middleware (`auth.ts`)
 
@@ -313,7 +317,8 @@ same shape as ModelBridge `mcp_server.py` but **sending the token** from `~/.jun
 - CORS: `Access-Control-Allow-Origin` echoed **only** for `chrome-extension://<our-id>` and
   `http://localhost:*` / `http://127.0.0.1:*`; `Access-Control-Allow-Private-Network: true` only for those
   origins. Everything else: no ACAO header (request may still execute but the page can't read the response —
-  and mutations still require the token, which a page doesn't have).
+  and mutations still require the token, which a page doesn't have). (M1-1 accepts any
+  `chrome-extension://[a-p]{32}` id until the manifest pins a key — `docs/decisions.md` 2026-10-23.)
 - Bind `127.0.0.1` only. Log every rejected auth attempt (origin + path), rate-limit `POST /mcp` tool calls
   (e.g. 30/min burst) as a quota-burn brake.
 
