@@ -1,9 +1,19 @@
 packages:
   - apps/*
   - packages/*
+  - spikes/*
 
 # pnpm 10+ blocks lifecycle scripts by default; esbuild's postinstall is an
 # optimization check only (the platform binary ships as an optional dep), but
 # approving it keeps install output clean.
+minimumReleaseAgeExclude:
+  - "@ai-sdk/anthropic@4.0.87"
+  - "@ai-sdk/gateway@4.0.124"
+  - "@ai-sdk/mcp@2.0.83"
+  - "@ai-sdk/provider-utils@5.0.67"
+  - "@ai-sdk/provider@4.0.33"
+  - "@ai-sdk/react@4.0.155"
+  - ai@7.0.151
+
 onlyBuiltDependencies:
   - esbuild

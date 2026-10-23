@@ -20,7 +20,7 @@
 |---|----------|--------|
 | 1 | Language | **TypeScript everywhere** (extension + bridge), pnpm monorepo |
 | 2 | Panel stack | **Vite + React 19 + Tailwind v4 + shadcn/ui** |
-| 3 | AI SDK | **Vercel AI SDK v5** — bridge engines (Anthropic + OpenAI-compatible) and panel chat (`useChat`) |
+| 3 | AI SDK | **Vercel AI SDK v7** — bridge engines (Anthropic + OpenAI-compatible) and panel chat (`useChat`); pinned in M0-4 (plan originally said v5 — `docs/decisions.md` 2026-10-23) |
 | 4 | MCP directions | **Both**: (a) terminal Claude → bridge MCP server → browser; (b) panel chat agent mode → browser tools |
 | 5 | Providers | Claude-first: **Claude CLI** (subscription auth) + **Anthropic API** key + any **OpenAI-compatible** base URL (OpenRouter etc.). Gemini/OpenAI-native and TinyFish search **dropped** |
 | 6 | CLI as brain | Bridge spawns `claude` CLI in stream-json mode **with tools enabled** (browser tools via MCP), configurable whether CLI native tools (Read/Edit/Bash) are exposed. Default: browser-only |
@@ -234,7 +234,7 @@ export const ApprovalDecisionSchema = z.object({
 ```
 
 ```ts
-// chat.ts — POST /api/chat body (AI SDK v5 UI message stream on the response side)
+// chat.ts — POST /api/chat body (AI SDK UI message stream on the response side)
 export const ChatRequestBodySchema = z.object({
   engine: z.enum(["api", "cli"]).default("api"),
   provider: z.string().default("claude-cli"),   // "claude-cli" | "anthropic" | <openai-compatible id>
@@ -374,20 +374,29 @@ screenshot() · get_active_tab()
 **Engine `api`** (Anthropic key / OpenAI-compatible via AI SDK):
 
 ```ts
-import { streamText, tool, stepCountIs } from "ai";
+import {
+  streamText,
+  tool,
+  isStepCount,
+  convertToModelMessages,
+  toUIMessageStream,
+  createUIMessageStreamResponse,
+} from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 
 const provider = registry.resolve(body.provider, body.model);   // builds model instance
 const result = streamText({
   model: provider.languageModel(body.model),
-  system: JUNIOR_SYSTEM + (body.system ?? ""),
-  messages: toModelMessages(body.messages),
+  instructions: JUNIOR_SYSTEM + (body.system ?? ""),   // v7 renamed `system` → `instructions` (old name = deprecated fallback)
+  messages: await convertToModelMessages(body.messages),  // v7: async
   tools: body.agentMode ? browserTools : undefined,
-  stopWhen: body.agentMode ? stepCountIs(bridgeConfig.maxSteps) : undefined,
+  stopWhen: body.agentMode ? isStepCount(bridgeConfig.maxSteps) : undefined,  // v7: was `stepCountIs` (now a deprecated alias)
   onError: ({ error }) => log.warn(error),
 });
-return createUIMessageStreamResponse({ stream: result.toUIMessageStream() });  // AI SDK v5
+return createUIMessageStreamResponse({ stream: toUIMessageStream({ stream: result.stream }) });
+// ^ v7 stateless helpers — the result methods (result.toUIMessageStream()/toUIMessageStreamResponse())
+//   are deprecated and removed next major (verified M0-4 against ai@7.0.151)
 ```
 
 - Provider registry: `anthropic` (key from config, never echoed), N × `openai-compatible`
@@ -515,7 +524,7 @@ Responsibilities (stateless-friendly, all state in `chrome.storage.session`/`loc
 
 ### 5.3 Side panel (React)
 
-- **Chat**: AI SDK v5 `useChat` + `DefaultChatTransport({ api: bridgeUrl + "/api/chat", credentials/headers:
+- **Chat**: AI SDK v7 `useChat` + `DefaultChatTransport({ api: bridgeUrl + "/api/chat", credentials/headers:
   Bearer token })`. Message parts render: markdown (`streamdown` or `react-markdown` + `remark-gfm`;
   KaTeX deferred to backlog), tool-call cards (collapsible: tool, args, result, duration), reasoning
   (collapsible, CLI engine), usage chips (tokens, model, provider).
@@ -636,8 +645,9 @@ any file >400 lines is a smell to refactor).
 3. ★ Spike `claude` CLI stream-json: script that runs the exact §4.5 command set against the installed CLI;
    record which flags exist (`--resume`, `--allowedTools`, `--disallowedTools`, `--thinking`, mcp-config
    behavior) into `docs/decisions.md`. This validates the CLI engine before anything is built.
-4. Spike AI SDK v5: `streamText` with `@ai-sdk/anthropic` + `createOpenAICompatible` (OpenRouter test key),
-   `toUIMessageStream` consumed by a `useChat` scratch page.
+4. Spike the AI SDK: `streamText` with `@ai-sdk/anthropic` + `createOpenAICompatible` (against a mock
+   OpenAI-compatible server and a real gateway), `toUIMessageStream` consumed by a `useChat` client.
+   Done in M0-4 — pinned **v7** (plan text said v5; `docs/decisions.md` 2026-10-23).
 - **Accept:** protocol tests green; decision doc lists verified CLI flags; spike repo commits.
 
 ### M1 — Bridge core (1–2 days)
@@ -727,14 +737,14 @@ If you are picking this up in a new session:
 1. Read **`progress.md` first** (live state + learnings log), then this file top to bottom; together they are
    self-sufficient. `CLAUDE.md` (auto-loaded in this directory) defines the per-session working protocol —
    one task per session, claim the task in `progress.md`, record learnings, context7 MCP for all library
-   research (`https://mcp.context7.com/mcp` is connected for AI SDK v5 / WXT / MCP SDK / shadcn docs).
+   research (`https://mcp.context7.com/mcp` is connected for AI SDK / WXT / MCP SDK / shadcn docs).
 2. Reference sources: `/workspace/autono-clone/` and `/workspace/modelbridge-clone/` (do **not** commit or
    modify them; copy assets out, note attribution for `buildDomTree.js`).
 3. Implement milestones in order; M2 and M3 can run as **parallel subagents** after M1 (they share only
    `packages/protocol`, which is frozen at M0).
 4. Every decision that contradicts this plan gets written into `docs/decisions.md` with the reason — the
    plan is updated, never bypassed silently.
-5. **Never guess library APIs from memory** — pull current docs via the context7 MCP for `ai` (AI SDK v5),
+5. **Never guess library APIs from memory** — pull current docs via the context7 MCP for `ai` (AI SDK v7),
    `@ai-sdk/*`, `@modelcontextprotocol/sdk`, `wxt`, `cmdk`, `virtua`, zod; pin versions on first use.
 5. Naming: package scope `@junior/*`, storage keys `junior_*`, config dir `~/.junior/`, port `8620`,
    MCP server name `junior_browser` (tool prefix `mcp__junior_browser__*`).

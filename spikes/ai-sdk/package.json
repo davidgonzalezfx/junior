@@ -1,0 +1,25 @@
+{
+  "name": "@junior/spike-ai-sdk",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "M0-4 spike: AI SDK v7 streamText (anthropic + openai-compatible) → toUIMessageStream → useChat. Throwaway code; the surviving findings go to progress.md Learnings + docs/decisions.md.",
+  "scripts": {
+    "typecheck": "tsc -p . --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "4.0.87",
+    "@ai-sdk/openai-compatible": "2.0.87",
+    "ai": "7.0.151",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@testing-library/react": "16.3.3",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@ai-sdk/react": "4.0.155",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  }
+}

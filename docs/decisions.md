@@ -61,3 +61,22 @@ Context: §4.5 planned to capture `session_id` from the stream-json init event a
 (convId can be that UUID) and passes `--session-id` on first turn, `--resume` after — no capture race, and
 `--resume` failures mean "session truly missing" rather than "we never learned the ID". Keep reading
 `session_id` from init as a log/debug field. Affects: plan §4.5 session-continuity bullet.
+
+## 2026-10-23 · AI SDK pinned to v7, not the plan's v5 (M0-4)
+
+Context: plan §2 row 3 pinned "Vercel AI SDK v5" and §4.5/§5.3 snippets used v5-era names. npm `latest`
+is now `ai@7.0.151` (v5 line still tagged `ai-v5` at 5.0.280 but two majors old). The M0-4 spike
+(`spikes/ai-sdk/`) verified every Junior surface against v7 + the official 7.0 migration guide: identical
+`useChat`/`DefaultChatTransport`/`createOpenAICompatible` shapes; mechanical renames only — `stepCountIs`
+→ `isStepCount` (alias kept), `result.toUIMessageStream()`/`toUIMessageStreamResponse()` deprecated in
+favor of stateless `toUIMessageStream({ stream: result.stream })` + `createUIMessageStreamResponse`,
+`system` → `instructions` (deprecated fallback), `convertToModelMessages` now async. Options: (a) honor
+the plan's v5 pin; (b) pin v7 and update the plan. Choice: **(b)** — `ai@7.0.151`,
+`@ai-sdk/anthropic@4.0.87`, `@ai-sdk/openai-compatible@2.0.87`, `@ai-sdk/react@4.0.155` (peer matrix:
+`@ai-sdk/*` 2.x ↔ ai 5, 3.x ↔ ai 6, 4.x ↔ ai 7; zod peer `^3.25 || ^4.1` covers our 4.6.5; react
+`^18 || ^19` covers M2). Reasons: (i) greenfield, no compat debt either way; (ii) context7 serves
+current-major docs by default — a v5 pin would force version-pinned doc pulls every session forever
+(the exact drift CLAUDE.md's research rules guard against); (iii) all renames were caught now, in the
+spike, instead of mid-M2. Note: CLAUDE.md's library list still says "Vercel AI SDK v5" — left untouched
+(user-owned file); this entry is the source of truth. Affects: plan §2 row 3, §3 comment, §4.5 snippet,
+§5.3, §7 rules, §8 M0-4.
