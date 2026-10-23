@@ -32,7 +32,7 @@ describe("config load/save (plan §4.1, port of core/config.py)", () => {
     expect(loadConfig(dir)).toEqual({
       port: 8620,
       permissionMode: "ask",
-      providers: { openaiCompatible: [] },
+      providers: { openaiCompatible: [], fallbackChain: [] },
       codeExecution: "off",
       maxSteps: 30,
       allowCliNativeTools: false,

@@ -242,7 +242,7 @@ describe("JuniorConfigSchema (plan §4.1)", () => {
     expect(JuniorConfigSchema.parse({})).toEqual({
       port: 8620,
       permissionMode: "ask",
-      providers: { openaiCompatible: [] },
+      providers: { openaiCompatible: [], fallbackChain: [] },
       codeExecution: "off",
       maxSteps: 30,
       allowCliNativeTools: false,

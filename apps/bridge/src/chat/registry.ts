@@ -24,17 +24,7 @@ export function resolveModel(
 ): LanguageModel {
   if (providerId === "anthropic") {
     if (config.providers.anthropicKey === undefined) throw new UnknownProviderError(providerId);
-    // ANTHROPIC_BASE_URL passthrough: same env the CLI and Claude Code honor, so gateway
-    // users get the bridge for free. The SDK's baseURL must INCLUDE /v1 (M0-4 learning —
-    // default is https://api.anthropic.com/v1) while Claude Code's env var is a bare host,
-    // so append /v1 unless it's already there.
-    const gateway = process.env.ANTHROPIC_BASE_URL;
-    const baseURL =
-      gateway === undefined || gateway === ""
-        ? undefined
-        : gateway.endsWith("/v1")
-          ? gateway
-          : `${gateway}/v1`;
+    const baseURL = anthropicBaseURL();
     return createAnthropic({
       apiKey: config.providers.anthropicKey,
       ...(baseURL !== undefined ? { baseURL } : {}),
@@ -50,4 +40,14 @@ export function resolveModel(
     apiKey: entry.apiKey,
     ...(fetchImpl ? { fetch: fetchImpl } : {}),
   }).languageModel(modelId);
+}
+
+/** ANTHROPIC_BASE_URL passthrough (shared with POST /api/config/test): same env the CLI
+ * and Claude Code honor, so gateway users get the bridge for free. The SDK's baseURL must
+ * INCLUDE /v1 (M0-4 learning — default is https://api.anthropic.com/v1) while Claude
+ * Code's env var is a bare host, so append /v1 unless it's already there. */
+export function anthropicBaseURL(): string | undefined {
+  const gateway = process.env.ANTHROPIC_BASE_URL;
+  if (gateway === undefined || gateway === "") return undefined;
+  return gateway.endsWith("/v1") ? gateway : `${gateway}/v1`;
 }

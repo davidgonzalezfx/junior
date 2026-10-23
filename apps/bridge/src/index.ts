@@ -1,6 +1,7 @@
 // @junior/bridge — Hono app on 127.0.0.1:8620 (plan §1, §4).
 // M1-1: health + pairing + auth/CORS. M1-2: dispatcher long-poll (/api/agent/*).
-// M1-3: /api/status. M2-3: /api/chat (engine api). Guard (M1-4), the cli engine + MCP
+// M1-3: /api/status. M2-3: /api/chat (engine api). M2-4: /api/config + /api/config/test
+// (Settings→Providers) + chat fallback chain. Guard (M1-4), the cli engine + MCP
 // server (M4) mount below the auth middleware as they land.
 import { Hono } from "hono";
 import { PairingRequestSchema, PairingResultSchema, PairingStatusSchema } from "@junior/protocol";
@@ -8,6 +9,7 @@ import { Dispatcher, type ActionGuard } from "./dispatcher/queue.js";
 import { defaultGuard } from "./dispatcher/guard.js";
 import { agentRoutes } from "./dispatcher/routes.js";
 import { chatRoutes } from "./chat/routes.js";
+import { providersRoutes } from "./providers.js";
 import { bearerAuth, corsAllowlist, tokensMatch, type Logger } from "./auth.js";
 import {
   consumePairingWindow,
@@ -18,6 +20,7 @@ import {
 } from "./config.js";
 import { statusRoutes } from "./status.js";
 import type { probeClaude } from "./cli-detect.js";
+import type { ProviderTestDeps } from "./providers.js";
 
 export interface BridgeDeps {
   /** Config dir (~/.junior or $JUNIOR_HOME) — injected so tests run hermetically. */
@@ -33,6 +36,8 @@ export interface BridgeDeps {
   status?: { probe?: typeof probeClaude; version?: string };
   /** /api/chat test seam — handed to resolveModel (in-process mock provider wires). */
   chat?: { fetch?: typeof fetch };
+  /** /api/config/test seams — models-fetch wire + env for the "test provider" button. */
+  providers?: { test?: ProviderTestDeps };
 }
 
 export function createApp(deps: BridgeDeps = { dir: juniorDir() }) {
@@ -103,6 +108,9 @@ export function createApp(deps: BridgeDeps = { dir: juniorDir() }) {
 
   // M2-3: /api/chat — engine "api" streaming (plan §4.5); cli engine + agentMode land M4.
   app.route("/api", chatRoutes({ dir: deps.dir, log, fetch: deps.chat?.fetch }));
+
+  // M2-4: Settings→Providers — masked GET, patch PUT, models test (plan §5.3).
+  app.route("/api", providersRoutes({ dir: deps.dir, log, test: deps.providers?.test }));
 
   app.notFound((c) => c.json({ error: "not found" }, 404));
   app.onError((err, c) => {

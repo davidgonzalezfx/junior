@@ -2,6 +2,8 @@
 // M2-3 scope: engine "api", plain chat (agentMode tools land with M4-3, the cli engine
 // with M4-4). Response is an AI SDK v7 UI message stream (SSE) straight from
 // toUIMessageStream — the extension's useChat consumes it unchanged.
+// M2-4: provider fallback chain from config — a provider 4xx/5xx BEFORE the first token
+// retries the next candidate (chat/fallback.ts); after the first token the error surfaces.
 import { Hono } from "hono";
 import {
   convertToModelMessages,
@@ -14,6 +16,7 @@ import { ChatRequestBodySchema } from "@junior/protocol";
 import type { Logger } from "../auth.js";
 import { loadConfig } from "../config.js";
 import { UnknownProviderError, resolveModel } from "./registry.js";
+import { AllProvidersFailedError, buildCandidateChain, firstSuccessfulStream } from "./fallback.js";
 
 /** v7: `system` was renamed `instructions` (old name is a deprecated fallback). */
 const JUNIOR_SYSTEM =
@@ -47,16 +50,15 @@ export function chatRoutes(deps: ChatDeps) {
     }
 
     const config = loadConfig(deps.dir); // per request: Settings edits land without a restart
-    let model;
+    let primaryModel;
     try {
-      model = resolveModel(body.data.provider, body.data.model, config, deps.fetch);
+      primaryModel = resolveModel(body.data.provider, body.data.model, config, deps.fetch);
     } catch (error) {
       if (error instanceof UnknownProviderError) {
         return c.json({ error: error.message }, 400);
       }
       throw error;
     }
-
     let messages;
     try {
       // v7: async. This is the real validator for the loose `messages` wire — garbage
@@ -69,16 +71,48 @@ export function chatRoutes(deps: ChatDeps) {
       );
     }
 
-    const result = streamText({
-      model,
-      instructions: body.data.system ? `${JUNIOR_SYSTEM}\n\n${body.data.system}` : JUNIOR_SYSTEM,
+    const instructions = body.data.system
+      ? `${JUNIOR_SYSTEM}\n\n${body.data.system}`
+      : JUNIOR_SYSTEM;
+    const toErrorText = (error: unknown) =>
+      error instanceof Error ? error.message : String(error);
+
+    // The requested provider first, then configured chain entries (§4.5). A thunk that
+    // throws (stale chain entry → UnknownProviderError) counts as a failed attempt.
+    const candidates = buildCandidateChain(body.data.provider, config.providers.fallbackChain);
+    const primary = streamText({
+      model: primaryModel,
+      instructions,
       messages,
-      onError: ({ error }) => log(`[chat] stream error: ${String(error)}`),
+      maxRetries: 0, // the fallback chain owns retries — SDK backoff would mask pre-token 5xxes
+      onError: ({ error }) => log(`[chat] stream error (${body.data.provider}): ${toErrorText(error)}`),
     });
 
-    return createUIMessageStreamResponse({
-      stream: toUIMessageStream({ stream: result.stream }),
-    });
+    try {
+      const stream = await firstSuccessfulStream([
+        () => toUIMessageStream({ stream: primary.stream, onError: toErrorText }),
+        ...candidates
+          .filter((id) => id !== body.data.provider)
+          .map((providerId) => () => {
+            const model = resolveModel(providerId, body.data.model, config, deps.fetch);
+            const result = streamText({
+              model,
+              instructions,
+              messages,
+              maxRetries: 0, // chain owns retries
+              onError: ({ error }) => log(`[chat] stream error (${providerId}): ${toErrorText(error)}`),
+            });
+            return toUIMessageStream({ stream: result.stream, onError: toErrorText });
+          }),
+      ]);
+      return createUIMessageStreamResponse({ stream });
+    } catch (error) {
+      if (error instanceof AllProvidersFailedError) {
+        log(`[chat] ${error.message}`);
+        return c.json({ error: error.message }, 502);
+      }
+      throw error;
+    }
   });
 
   return routes;
