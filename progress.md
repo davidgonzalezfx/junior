@@ -5,7 +5,7 @@
 
 **Updated:** 2026-10-23
 **Current milestone:** M0 — Scaffold + spike
-**Current task:** M0-1 pnpm monorepo scaffold (2026-10-23)
+**Current task:** none claimed (M0-1 done; **next up: M0-2** protocol schemas)
 **Current blockers:** none
 
 ---
@@ -14,7 +14,7 @@
 
 | Milestone | State | Notes |
 |---|---|---|
-| M0 Scaffold + spike (protocol schemas, CLI flags spike, AI SDK spike) | ⬜ not started | gates CLI engine design; verify `--resume`, `--allowedTools`, `--mcp-config`, `--thinking` against installed CLI |
+| M0 Scaffold + spike (protocol schemas, CLI flags spike, AI SDK spike) | 🔶 in progress (1/4) | gates CLI engine design; verify `--resume`, `--allowedTools`, `--mcp-config`, `--thinking` against installed CLI |
 | M1 Bridge core (Hono, auth, dispatcher, guard, status) | ⬜ blocked by M0 | |
 | M2 Extension shell + chat (WXT, useChat, ⌘K picker, settings, history) | ⬜ blocked by M1 | parallelizable with M3 |
 | M3 Browser tool layer (executors, read_page, approvals, overlay) | ⬜ blocked by M1 | parallelizable with M2 |
@@ -24,7 +24,7 @@
 
 ## M0 checklist
 
-- [ ] M0-1 pnpm monorepo scaffold (workspaces, strict tsconfig, eslint/prettier, node 22)
+- [x] M0-1 pnpm monorepo scaffold (workspaces, strict tsconfig, eslint/prettier, node 22) — gates green: `pnpm -r typecheck/test/build` + lint + format; commit de84cf1
 - [ ] M0-2 `packages/protocol` — all plan §3 schemas + round-trip tests
 - [ ] M0-3 ★ CLI spike: run plan §4.5 flag matrix against installed `claude`; record results in Learnings
 - [ ] M0-4 ★ AI SDK v5 spike: `streamText` (anthropic + openai-compatible) → `toUIMessageStream` → `useChat`
@@ -69,6 +69,15 @@
 > Append-only. One line per fact, newest section per date. Format: `- [topic] fact (source)`.
 > This is the anti-rediscovery log: CLI flags, renamed library APIs, environment quirks.
 
+### 2026-10-23 (M0-1 scaffold session)
+- [toolchain] typescript@7.x (native compiler) is OUTSIDE typescript-eslint@8's peer range (`>=4.8.4 <6.1.0`) → pinned `typescript@5.9.3`; re-evaluate when typescript-eslint supports 7.
+- [toolchain] pnpm not preinstalled; `corepack enable` fails EACCES (`/usr/local/bin` not writable) → installed `pnpm@12.15.0` via `npm i -g` (user-owned `/usr/local/share/npm-global`). Store: `/workspace/.pnpm-store`.
+- [toolchain] Host node is **24.22.1**; `.nvmrc` says 22 per plan, root `engines: >=22` admits both. ESLint 10 / vitest 5 / @types/node 26 all fine on 24.
+- [toolchain] pnpm 10+ blocks lifecycle scripts; `onlyBuiltDependencies: [esbuild]` pre-approved in `pnpm-workspace.yaml`.
+- [toolchain] vitest 5 resolves NodeNext-style `./x.js` → `./x.ts` relative imports natively — protocol can keep NodeNext source imports in tests, no plugin.
+- [toolchain] `@junior/protocol` ships **built dist** via exports map (bridge is NodeNext, needs real d.ts); root `postinstall: pnpm -r build` keeps dist fresh on fresh clones. pnpm `-r` runs topological.
+- [toolchain] prettier ignores `*.md` (plan/progress/CLAUDE.md keep their hand formatting); prettier is NOT in the green gate, `format:check` is.
+
 ### 2026-10-23 (planning session — reverse engineering)
 - [security] ModelBridge never verifies the pairing token; CORS `allow_origins=["*"]` + `allow_private_network` — Junior must enforce token + origin allowlist (plan §4.2, §7-5).
 - [mcp] ModelBridge `mcp_server.py` stdio proxy defaults to port 8000 while the server listens on 8765 — stale constant; Junior stdio proxy reads `~/.junior/config.json`.
@@ -83,3 +92,4 @@
 > One line per session: `date · task(s) · outcome · commit`
 
 - 2026-10-23 · planning · plan.md + CLAUDE.md + progress.md written from RE of Autono/ModelBridge · —
+- 2026-10-23 · M0-1 · monorepo scaffold green (typecheck/test/build/lint/format, protocol↔bridge import verified) · de84cf1
