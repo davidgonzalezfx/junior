@@ -351,17 +351,21 @@ export async function dispatch(action: BrowserAction, timeoutMs = 120_000) {
 `POST /api/agent/approval-response`; **no panel connected or timeout ⇒ deny** (Autono `requestExternalActionApproval`
 default, `background.js:4799–4813`, but 120 s instead of 60 s).
 
-### 4.4 Guard (`dispatcher/guard.ts`) — port Autono's, unchanged in spirit
+### 4.4 Guard — port Autono's, unchanged in spirit (landed M1-4, split pure/stateful)
 
-Copy from `autono-clone/Autono/background.js` + `lib/autono-security.js` (pure string/URL logic — trivially
-portable to TS):
+The pure string/URL logic lives in **`packages/protocol/src/guard.ts`** (port of `autono-clone/Autono/background.js:1784–1957`
++ `lib/autono-security.js:269–290`) so the extension's guard mirror (§5.2 item 4) shares the exact tables —
+the M3 subagent imports `@junior/protocol`, never bridge internals. Stateful enforcement is the bridge's
+`apps/bridge/src/dispatcher/guard.ts` (`SessionGuard`, port of `createActionGuard`, `background.js:2015–2158`):
 
 - `validateAgentUrl` (`background.js:1876`): public http(s) only; private IPv4/IPv6 (incl. `[::1]`), localhost,
-  `.internal`, dot-segments, >2000-char URLs → refuse or require confirm; `blockedOrigins` = extension origin +
-  bridge origin (so the agent can't talk to Junior itself).
+  `.internal`, dot-segments, >2000-char URLs → refuse or require confirm. `blockedOrigins` (bridge origin —
+  the extension origin can't pass the http(s) check) are a **hard reject**, no card: §6.3-5 "the agent can
+  never target … the bridge origin" (Autono merely confirmed; Junior refuses).
 - `SENSITIVE_SITE_RULES` / `SENSITIVE_ACTION_RE` / `SENSITIVE_FIELD_RE` / OAuth path regex
-  (`background.js:1913–1963`) — copy the tables **verbatim** (EN+ES labels).
-- Permission matrix (`lib/autono-security.js:283 permissionDecision`):
+  (`background.js:1913–1963`) — copied **verbatim** (EN+ES labels).
+- Permission matrix (`permissionDecision`, hardened per the table — two deltas from Autono: secret fields
+  refused in **every** mode, sensitive site/label/form submit carded even in `auto`):
 
 | | `ask` | `auto` | `none` |
 |---|---|---|---|
@@ -371,10 +375,16 @@ portable to TS):
 | secret field typing | **refuse** | **refuse** | **refuse** |
 | local/internal address | refuse (card) | **refuse, no card** | allow |
 
-- Guard state per *session* (set of granted domains, page-approved domain), same as `createActionGuard`
-  (`background.js:2015–2110`). `checkPage` runs on every `get_active_tab`/`read_page` to catch redirects.
-- Denials return the structured strings to the model: `USER_DENIED: …` / `BLOCKED_BY_POLICY: …`
-  (Autono `background.js:2007–2009`) so the agent doesn't retry.
+- Guard state per *session* (`SessionGuard`: seen/granted registrable domains, page-approved domain).
+  `check()` enforces `navigate` in full (the action carries the URL); click/type page-fact checks need
+  probed facts and run in the §5.2 extension mirror. `checkPage(url, ask)` is exposed for the M4 engines —
+  engines call it each step with the URL results reveal (catches redirects); its card goes through
+  `Dispatcher.requestApproval` (standalone approval, same default-deny rules).
+- Denials return the structured strings to the model: `USER_DENIED: …` / `BLOCKED_BY_POLICY: …` /
+  `BLOCKED_SENSITIVE: …` (Autono `background.js:2010–2012, 2151`) so the agent doesn't retry.
+- Tests: the Autono battery (`autono-clone/tests/security-sprint2.test.js` + `autono-security.test.cjs`)
+  is ported in `packages/protocol/src/guard.test.ts`; stateful behavior + live wiring in
+  `apps/bridge/src/dispatcher/guard.test.ts`.
 
 ### 4.5 Chat engines (`chat/`)
 
@@ -529,8 +539,10 @@ Responsibilities (stateless-friendly, all state in `chrome.storage.session`/`loc
      Element index cache (`__junior_dom_map`) invalidated on URL change.
    - `screenshot`: `chrome.tabs.captureVisibleTab` → downscale to max 1280px → JPEG q0.6 data URL.
    - Inject `content.ts` on demand (executors that need page context), `buildDomTree.js` for outline mode.
-4. **Guard client-side**: mirror of bridge guard tables (so the extension can show cards with the same
-   reasons even for panel-originated agent runs). Bridge remains the enforcement point; extension guard is
+4. **Guard client-side**: same pure tables as the bridge — import `@junior/protocol/guard.ts`
+   (`validateAgentUrl`, `sensitiveSiteReason`, `fieldIsSensitive`, `labelIsSensitive`, `permissionDecision`),
+   never a re-implementation — so the extension can show cards with the same reasons even for
+   panel-originated agent runs. Bridge remains the enforcement point; extension guard is
    for display + defense in depth.
 5. **Port router** (panel ↔ SW): `init_state`, `approval_request/response`, `task_status`, `bridge_status`,
    `pick_element` (armed-picker flow, 10-min expiry — port Autono `background.js:5577–5590` but simpler).
@@ -673,7 +685,8 @@ any file >400 lines is a smell to refactor).
 1. Hono app, config/token/pairing, auth middleware + CORS allowlist (§4.1–4.2).
 2. Dispatcher + long-poll endpoints + approvals-on-queue (§4.3) with a **fake executor** test client.
 3. `/api/status` with CLI detection (port `auth_status.py`).
-4. Guard port + tables + matrix + unit tests (feed it the Autono test cases from `tests/security.test.js`).
+4. Guard port + tables + matrix + unit tests (feed it the Autono test cases from `tests/security-sprint2.test.js`
+   + `Autono/tests/autono-security.test.cjs`).
 - **Accept:** curl-able health/status/pairing; queue round-trip test; guard tests green.
 
 ### M2 — Extension shell + chat (2–3 days) ★ (needs M1)
