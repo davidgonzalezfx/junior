@@ -133,3 +133,35 @@ the WXT app; (b) follow shadcn's documented manual-install path — `components.
 WXT's `srcDir`/alias layout; manual install is the upstream-supported path, keeps every component
 reviewable, and future `shadcn add <component>` still works because `components.json` is present.
 Affects: `apps/extension/{components.json,tsconfig.json}`, `apps/extension/src/{lib/utils.ts,components/ui/*,entrypoints/sidepanel/style.css}`.
+
+## 2026-10-23 · Provider keys live in `~/.junior/config.json`, edited via new `/api/config` routes (M2-4)
+
+Context: plan §5.3 said the Anthropic key is "stored `chrome.storage.local`", but the chat registry
+(`apps/bridge/src/chat/registry.ts`) resolves keys from bridge config, and the §3 HTTP table (labeled
+"complete") had no config route. Options: (a) keys in `chrome.storage.local`, sent per chat request —
+splits the key store in two and puts secrets on every request body; (b) keys stay bridge-side in
+`config.json` (per §4.1), and Settings→Providers edits them through new token-gated routes
+`GET/PUT /api/config` + `POST /api/config/test`. Choice: **(b)** — single source of truth, keys never
+cross the wire back (GET returns a masked view; `ProvidersViewSchema` is a strict object so a raw
+`apiKey` field fails the parse), and PUT patches use absent-key-means-keep semantics so the UI only
+ever sends a key the user typed. Affects: plan §3 HTTP table, §5.3; `packages/protocol/src/config.ts`,
+`apps/bridge/src/providers.ts`, `apps/extension/src/lib/bridge-client.ts`.
+
+## 2026-10-23 · Fallback chain lives in bridge config; same model id per candidate (M2-4)
+
+Context: plan §4.5 frames the fallback chain as engine behavior ("on provider-level 4xx/5xx before the
+first token, retry next") while §5.3 puts its editor in the extension. Options: (a) chain sent per chat
+request in the body; (b) stored as `providers.fallbackChain` in `config.json`, read per request like
+every other provider fact. Choice: **(b)** — the chain is bridge behavior and belongs next to the
+provider entries it references; the chat wire schema stays untouched. Documented limitation (plan §5.3
+does not address it): the requested model id is sent to every candidate unchanged, so chain entries must
+understand the same id namespace (e.g. two gateways of the same upstream). Also: `streamText` runs with
+`maxRetries: 0` — the chain owns retries, and the SDK's default exponential backoff masked pre-token 5xx
+failures in testing. Affects: plan §4.5; `packages/protocol/src/config.ts`, `apps/bridge/src/chat/{routes,fallback}.ts`.
+
+## 2026-10-23 · Chain reorder uses ↑/↓ buttons, not drag (M2-4)
+
+Context: plan §5.3 says "fallback chain (drag to reorder)". Options: (a) HTML5 drag-and-drop now;
+(b) up/down buttons. Choice: **(b)** — reorder is a 30-second interaction in a 380 px side panel, and
+drag needs a library or fragile DnD plumbing; revisit only if the settings section grows other
+drag-orderable lists. Affects: plan §5.3 wording, `apps/extension/src/components/settings/providers-settings.tsx`.

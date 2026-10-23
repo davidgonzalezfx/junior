@@ -289,6 +289,9 @@ export const PairingResultSchema = z.object({ ok: z.literal(true), alreadyPaired
 | `POST /api/agent/approval-response` | token | `ApprovalDecisionSchema` |
 | `GET /api/pairing` | none | `{tokenRequired: true, tokenSet: bool}` — extension onboarding |
 | `POST /api/pairing` | token | extension registers/confirms token (idempotent) |
+| `GET /api/config` | token | masked providers view (`ProvidersViewSchema` — never carries a raw key) |
+| `PUT /api/config` | token | replace the providers block (`ProvidersPatchSchema`); absent keys = keep existing |
+| `POST /api/config/test` | token | list models for one configured provider (Settings "test" button) |
 
 `junior-mcp` stdio proxy (bin) speaks MCP stdio with a local terminal agent and forwards to `POST /mcp` —
 same shape as ModelBridge `mcp_server.py` but **sending the token** from `~/.junior/token`.
@@ -431,7 +434,10 @@ return createUIMessageStreamResponse({ stream: toUIMessageStream({ stream: resul
 - Provider registry: `anthropic` (key from config, never echoed), N × `openai-compatible`
   (`createOpenAICompatible({ name, baseURL, apiKey })` — this is the OpenRouter path).
 - Optional per-provider fallback chain: `["anthropic", "openrouter"]` — on provider-level 4xx/5xx before the
-  first token, retry next; after first token, surface error (no mid-stream provider switch).
+  first token, retry next; after first token, surface error (no mid-stream provider switch). Stored as
+  `providers.fallbackChain` in config (read per request, edited via Settings→Providers; the requested model
+  id is sent unchanged to every candidate — see decisions.md 2026-10-23); `streamText` runs `maxRetries: 0`
+  so the chain owns retries.
 
 **Engine `cli`** (Claude CLI as the brain):
 
@@ -569,13 +575,14 @@ Responsibilities (stateless-friendly, all state in `chrome.storage.session`/`loc
   per-conversation model badge; the badge itself is a button reopening the palette mid-conversation.
   Autono shipped a raw `<select>` of hardcoded model IDs + text input — replaced entirely.
 - **Settings → Providers** (full section, user request #8):
-  - Anthropic: API key input (masked, stored `chrome.storage.local`, never rendered back in full),
-    "test" button (models list).
+  - Anthropic: API key input (masked; stored in `~/.junior/config.json` via `PUT /api/config` —
+    never rendered back in full, `GET /api/config` returns a masked view only), "test" button
+    (`POST /api/config/test`, models list).
   - Claude CLI: detected path/version/login status from `/api/status`; toggle `allowCliNativeTools`.
   - OpenAI-compatible: add/edit/delete entries `{label, baseUrl, apiKey}`; per-entry "fetch models"
     (`GET {base}/v1/models`) with inline validation (port Autono `options/options.js:100` but with the
     `parseBridgeUrl`-style https/loopback check on the base URL).
-  - Default provider + model + fallback chain (drag to reorder).
+  - Default provider + model + fallback chain (↑/↓ buttons to reorder — decisions.md 2026-10-23).
   - Agent & Security: permission mode radio (`ask`/`auto`/`none`) with the matrix rendered as a table,
     maxSteps slider, pairing status + "Re-pair" button.
 - **Approval cards**: bottom-sheet card; shows page URL, destination, element facts (real text/href),
