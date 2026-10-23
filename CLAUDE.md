@@ -28,7 +28,7 @@ Work on **one task, or one small group of related tasks, per session**. This fil
 
 ## Library research (context7 MCP is connected)
 
-- **Never guess library APIs from memory.** Before writing code against `ai` (Vercel AI SDK v5),
+- **Never guess library APIs from memory.** Before writing code against `ai` (Vercel AI SDK v7,
   `@ai-sdk/anthropic`, `@ai-sdk/openai-compatible`, `@modelcontextprotocol/sdk`, `wxt`, `cmdk`, `virtua`,
   shadcn/ui, or zod v4 — pull current docs via the context7 MCP (`https://mcp.context7.com/mcp`) for the
   exact function/option names (`useChat` transport, `streamText` + `toUIMessageStream`, MCP streamable-HTTP
