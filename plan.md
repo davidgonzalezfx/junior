@@ -288,7 +288,8 @@ same shape as ModelBridge `mcp_server.py` but **sending the token** from `~/.jun
 - Config file `~/.junior/config.json` (schema in `packages/protocol/config.ts`): `port: 8620`,
   `permissionMode: "ask" | "auto" | "none"` (default `ask`), `providers` (anthropic key, openai-compatible
   list `{id, label, baseUrl, apiKey, models?}`), `codeExecution: "off"` (reserved; not implemented in v1),
-  `maxSteps: 30` (clamp 1–100), `cliPath?: string`, `allowCliNativeTools: false`.
+  `maxSteps: 30` (1–100 enforced by `JuniorConfigSchema` — fail-fast, not runtime clamped; see
+  `docs/decisions.md`), `cliPath?: string`, `allowCliNativeTools: false`.
 - Token file `~/.junior/token` (0600). On first start, bridge generates 32 random bytes hex
   (port `AutonoSecurity.generatePairingToken`). Extension generates its own and calls `POST /api/pairing`;
   if a token is already set and doesn't match → 403, user must click **Pair** in the bridge console
