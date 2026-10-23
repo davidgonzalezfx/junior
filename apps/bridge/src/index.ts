@@ -4,7 +4,8 @@
 // auth middleware as they land.
 import { Hono } from "hono";
 import { PairingRequestSchema, PairingResultSchema, PairingStatusSchema } from "@junior/protocol";
-import { Dispatcher } from "./dispatcher/queue.js";
+import { Dispatcher, type ActionGuard } from "./dispatcher/queue.js";
+import { defaultGuard } from "./dispatcher/guard.js";
 import { agentRoutes } from "./dispatcher/routes.js";
 import { bearerAuth, corsAllowlist, tokensMatch, type Logger } from "./auth.js";
 import {
@@ -24,13 +25,17 @@ export interface BridgeDeps {
   log?: Logger;
   /** Dispatcher seam for tests; each app gets a fresh one by default. */
   dispatcher?: Dispatcher;
+  /** §4.4 guard seam — the default SessionGuard when the dispatcher is built here.
+   * Ignored when `dispatcher` is injected: construct that one with its own guard. */
+  guard?: ActionGuard;
   /** /api/status seams for tests — real detection + package.json version by default. */
   status?: { probe?: typeof probeClaude; version?: string };
 }
 
 export function createApp(deps: BridgeDeps = { dir: juniorDir() }) {
   const log: Logger = deps.log ?? ((line) => console.warn(line));
-  const dispatcher = deps.dispatcher ?? new Dispatcher();
+  const guard = deps.guard ?? defaultGuard(deps.dir); // §4.4 enforcement point
+  const dispatcher = deps.dispatcher ?? new Dispatcher({ guard });
   const app = new Hono();
 
   app.use("*", corsAllowlist());

@@ -125,7 +125,7 @@ export class Dispatcher {
     if (verdict.kind === "approval") {
       // Nobody connected to ask ⇒ deny now, never park the caller for 120 s.
       if (!this.connected()) return { id, status: "denied", error: approvalDenial("no-panel") };
-      const decision = await this.requestApproval(id, verdict.approval);
+      const decision = await this.requestApprovalItem(id, verdict.approval, this.approvalTimeoutMs);
       if (decision === null) return { id, status: "denied", error: approvalDenial("timeout") };
       this.guard?.onApprovalDecision?.(action, decision);
       if (decision.decision === "deny") {
@@ -182,6 +182,18 @@ export class Dispatcher {
     this.touch();
   }
 
+  /** Standalone approval with no action in flight — SessionGuard.checkPage's ask path
+   * (§4.4). Same default-deny rules as dispatch-time approvals: nobody connected or
+   * the window lapses ⇒ "deny". */
+  async requestApproval(
+    approval: ApprovalRequest,
+    timeoutMs = this.approvalTimeoutMs,
+  ): Promise<"once" | "site" | "deny"> {
+    if (!this.connected()) return "deny";
+    const decision = await this.requestApprovalItem(randomUUID(), approval, timeoutMs);
+    return decision?.decision ?? "deny";
+  }
+
   /** §3 BridgeStatusSchema.browserConnected / §4.3 MCP errors. */
   connected(): boolean {
     return this.now() - this.lastPing < BROWSER_FRESH_MS;
@@ -203,7 +215,11 @@ export class Dispatcher {
     this.queue.clear();
   }
 
-  private requestApproval(id: string, approval: ApprovalRequest): Promise<ApprovalDecision | null> {
+  private requestApprovalItem(
+    id: string,
+    approval: ApprovalRequest,
+    timeoutMs: number,
+  ): Promise<ApprovalDecision | null> {
     const fut = deferred<ApprovalDecision | null>();
     this.approvals.set(id, fut);
     const item: ApprovalQueueItem = {
@@ -211,10 +227,10 @@ export class Dispatcher {
       kind: "approval",
       approval,
       createdAt: this.now(),
-      timeoutMs: this.approvalTimeoutMs,
+      timeoutMs,
     };
     this.queue.push(item);
-    return withTimeout(fut.promise, this.approvalTimeoutMs);
+    return withTimeout(fut.promise, timeoutMs);
   }
 
   private touch(): void {
