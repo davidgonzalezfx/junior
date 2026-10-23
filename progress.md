@@ -5,7 +5,7 @@
 
 **Updated:** 2026-10-23
 **Current milestone:** M2 — Extension shell + chat (5/5, complete)
-**Current task:** none claimed (**next up: M3-1** executors, per plan §8 — M3/M4 unblocked; M3-2 may run in parallel)
+**Current task:** M3-1 executors + probe-before-act + resolver port (claimed 2026-10-23)
 **Current blockers:** none
 
 ---

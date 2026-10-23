@@ -165,3 +165,19 @@ Context: plan §5.3 says "fallback chain (drag to reorder)". Options: (a) HTML5 
 (b) up/down buttons. Choice: **(b)** — reorder is a 30-second interaction in a 380 px side panel, and
 drag needs a library or fragile DnD plumbing; revisit only if the settings section grows other
 drag-orderable lists. Affects: plan §5.3 wording, `apps/extension/src/components/settings/providers-settings.tsx`.
+
+## 2026-10-23 · Executor port deltas — unified in-page entry, hardened empty targets (M3-1)
+
+Context: plan §5.2.3 says "port of Autono's page interaction, simplified" and §6.1 lists the resolver as
+copy-near-verbatim. Autono ships one duplicated resolver per executor (click/type each embed their own
+copy, background.js:4283–4400 vs 4495–4600). Options: (a) duplicate verbatim per op; (b) one self-contained
+`juniorActionInPage(args)` with an `op` discriminator. Choice: **(b)** — `chrome.scripting.executeScript`
+serializes only the function body, so a single entry is the only way to share the resolver without
+string-building source; it is also directly unit-testable against jsdom. Junior deltas baked in: empty
+targets never attribute/text-match (Autono's `"" === ""` id check resolves any attribute-less field —
+strategy 8's focused-field fallback stays reachable); UIEvent `view` omitted (jsdom rejects cross-realm
+windows; Chrome behavior identical); typing cadence parameterized (`charDelayMs`) so tests run at 0 ms;
+the visible mouse cursor and A19 abort-sequence flag are not ported (cursor not in §6.1's copy list;
+§5.2.6 puts pause in the SW). Navigate + scroll ride along in the runner for switch exhaustiveness —
+navigate re-validates via `validateAgentUrl` as defense-in-depth (full enforcement stays bridge-side, M1-4).
+Affects: `apps/extension/src/lib/executors/*`, plan §5.2 (no text change — deltas are within "simplified").
