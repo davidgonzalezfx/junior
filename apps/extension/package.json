@@ -3,5 +3,29 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Junior Chrome MV3 extension — WXT + React side panel (plan §5). WXT scaffold lands in M2-1; this stub only reserves the workspace slot."
+  "description": "Junior Chrome MV3 extension — WXT + React side panel (plan §5).",
+  "scripts": {
+    "dev": "wxt",
+    "build": "wxt build",
+    "zip": "wxt zip",
+    "typecheck": "wxt prepare && tsc --noEmit",
+    "serve": "wxt build && (open -a 'Google Chrome' .output/chrome-mv3 2>/dev/null || echo 'load .output/chrome-mv3 via chrome://extensions (Developer mode → Load unpacked)')"
+  },
+  "dependencies": {
+    "@junior/protocol": "workspace:*",
+    "@radix-ui/react-slot": "1.5.0",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "tailwind-merge": "3.7.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.3.3",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@wxt-dev/module-react": "1.2.2",
+    "tailwindcss": "4.3.3",
+    "wxt": "0.21.4"
+  }
 }

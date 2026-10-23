@@ -31,6 +31,14 @@ export const JuniorConfigSchema = z.object({
 
 export type JuniorConfig = z.infer<typeof JuniorConfigSchema>;
 
+// Pinned extension identity (docs/decisions.md 2026-10-23): Chrome derives this id from
+// the manifest `key` in apps/extension/wxt.config.ts (public half of
+// ~/.junior/extension-key.pem — private key never committed). The bridge CORS allowlist
+// accepts ONLY this origin (apps/bridge/src/auth.ts); rotating the key rotates the id and
+// both consumers together. Tripwire test asserts the [a-p]{32} shape.
+export const EXTENSION_ID = "ocjlcgidjeodnjicogfmmicpkookeabb";
+export const EXTENSION_ORIGIN = `chrome-extension://${EXTENSION_ID}` as const;
+
 // Extension-side mirror of the bridge facts it needs (plan §5.2 item 1) — stored in
 // chrome.storage.local, never in ~/.junior/. permissionMode/allowCliNativeTools mirror
 // JuniorConfigSchema fields so the extension can display + pre-check them.

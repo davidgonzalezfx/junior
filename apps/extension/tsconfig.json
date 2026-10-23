@@ -1,0 +1,16 @@
+{
+  // Extends the config WXT generates (`wxt prepare`): bundler moduleResolution, jsx,
+  // `@/*` paths from wxt.config alias, chrome/wxt globals. Strict flags mirror
+  // tsconfig.base.json (plan §2) because the generated config doesn't carry them.
+  "extends": "./.wxt/tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "verbatimModuleSyntax": true
+  }
+}
