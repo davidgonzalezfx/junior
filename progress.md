@@ -5,7 +5,7 @@
 
 **Updated:** 2026-10-23
 **Current milestone:** M0 — Scaffold + spike
-**Current task:** none claimed (M0-3 done; **next up: M0-4** AI SDK v5 spike)
+**Current task:** none claimed (M0-4 done — M0 complete; **next up: M1-1** Hono app + auth)
 **Current blockers:** none
 
 ---
@@ -14,8 +14,8 @@
 
 | Milestone | State | Notes |
 |---|---|---|
-| M0 Scaffold + spike (protocol schemas, CLI flags spike, AI SDK spike) | 🔶 in progress (3/4) | M0-3 verified the full §4.5 flag matrix vs CLI 2.1.309 — 3 forks in docs/decisions.md, plan §4.5 args rewritten |
-| M1 Bridge core (Hono, auth, dispatcher, guard, status) | ⬜ blocked by M0 | |
+| M0 Scaffold + spike (protocol schemas, CLI flags spike, AI SDK spike) | ✅ done (4/4) | AI SDK pinned to **v7** in M0-4 (plan said v5 — decisions.md); M1 unblocked |
+| M1 Bridge core (Hono, auth, dispatcher, guard, status) | ⬜ up next | |
 | M2 Extension shell + chat (WXT, useChat, ⌘K picker, settings, history) | ⬜ blocked by M1 | parallelizable with M3 |
 | M3 Browser tool layer (executors, read_page, approvals, overlay) | ⬜ blocked by M1 | parallelizable with M2 |
 | M4 MCP server + agent paths (streamable HTTP, stdio proxy, CLI engine) | ⬜ blocked by M1+M3 | terminal-Claude e2e is the headline demo |
@@ -27,7 +27,7 @@
 - [x] M0-1 pnpm monorepo scaffold (workspaces, strict tsconfig, eslint/prettier, node 22) — gates green: `pnpm -r typecheck/test/build` + lint + format; commit de84cf1
 - [x] M0-2 `packages/protocol` — all plan §3 schemas + round-trip tests — zod@4.6.5 pinned; actions/queue/approval/chat/status + `config.ts` (§4.1); 20 tests green: `pnpm -r typecheck/test/build` + lint + format OK; 2 forks recorded in `docs/decisions.md`; commit 3cd22f4
 - [x] M0-3 ★ CLI spike: run plan §4.5 flag matrix against installed `claude`; record results in Learnings — `spikes/cli/flags.sh` 10/10 PASS vs Claude Code 2.1.309; 3 forks → docs/decisions.md (args updated in plan §4.5); evidence extracts in spikes/cli/evidence/; commit c56ef25
-- [ ] M0-4 ★ AI SDK v5 spike: `streamText` (anthropic + openai-compatible) → `toUIMessageStream` → `useChat`
+- [x] M0-4 ★ AI SDK spike: `streamText` (anthropic + openai-compatible) → `toUIMessageStream` → `useChat` — **pinned v7** (ai@7.0.151 + @ai-sdk/anthropic@4.0.87 + @ai-sdk/openai-compatible@2.0.87 + @ai-sdk/react@4.0.155; plan said v5 → fork in decisions.md, plan §2/§4.5/§5.3/§8 updated). 5/5 tests in `spikes/ai-sdk/`: hermetic useChat e2e vs a hand-rolled OpenAI-compatible SSE mock (plain + agentMode tool loop), server-side wire-shape evidence, and a **real-gateway** streaming leg (`@ai-sdk/anthropic` custom baseURL → glm-5.3-flash; skips without `ANTHROPIC_API_KEY`). Green gate: `pnpm -r typecheck/test` + lint + format:check
 
 ## M1 checklist
 
@@ -101,6 +101,18 @@
 - [env] Nested `claude` spawn: unset `CLAUDECODE CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ID CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_MESSAGING_SOCKET CLAUDE_CODE_MESSAGING_TOKEN CLAUDE_PID CLAUDE_EFFORT CLAUDE_CODE_SESSION_ATTENDED` to avoid inheriting the parent session's wiring (flags.sh `spawn()`).
 - [env] `--effort`/flag probes with `--version` exit 0 before validation — commander-style short-circuit; probe flags with a real `-p` call, not `--version`.
 
+### 2026-10-23 (M0-4 AI SDK spike session — ai@7.0.151)
+- [ai-sdk] **Pin v7 line**: `ai@7.0.151`, `@ai-sdk/anthropic@4.0.87`, `@ai-sdk/openai-compatible@2.0.87`, `@ai-sdk/react@4.0.155`. Peer matrix: `@ai-sdk/*` major 2 ↔ ai@5, 3 ↔ ai@6, 4 ↔ ai@7. zod peer `^3.25.76 || ^4.1.8` (our 4.6.5 OK); react peer `^18 || ^19` OK.
+- [ai-sdk] v7 renames vs plan's v5-era snippet: `stepCountIs` → `isStepCount` (old name kept as deprecated alias); `result.toUIMessageStream()`/`toUIMessageStreamResponse()` deprecated → stateless `toUIMessageStream({ stream: result.stream })` + `createUIMessageStreamResponse(...)`; `system` → `instructions` (old name = deprecated fallback); `convertToModelMessages` is **async** (await it). `useChat`/`DefaultChatTransport`/`createOpenAICompatible`/`onError: ({error})` unchanged.
+- [ai-sdk] UI message stream wire (v7, observed): plain chat `start → start-step → text-start → text-delta → text-end → finish-step → finish`; agent tool loop `start → start-step → tool-input-start → tool-input-delta → tool-input-available → tool-output-available → finish-step → start-step → text-* → finish-step → finish`. Stream terminates with a bare `data: [DONE]` SSE frame — parsers must skip it.
+- [ai-sdk] `createAnthropic({ baseURL })` prefix must **include `/v1`** (default `https://api.anthropic.com/v1`); z.ai gateway = `$ANTHROPIC_BASE_URL/v1`. Gateway model code is `glm-5.3-flash` — the `[1m]` suffix from `ANTHROPIC_DEFAULT_OPUS_MODEL` gets rejected (`[1211] Unknown Model`); strip it. Unknown model codes also trigger a SDK warning capping `maxOutputTokens` at 4096 — pass it explicitly for long replies.
+- [ai-sdk] `useChat` status lifecycle observed: `submitted` → `streaming` → `ready` (error → `error`). In e2e waits assert the **assistant** message, never the user text — the prompt usually contains your token, making `waitFor` vacuously true while status is still `submitted`.
+- [toolchain] pnpm 12 `minimumReleaseAge`: brand-new npm releases are auto-excluded — install writes `minimumReleaseAgeExclude` entries into `pnpm-workspace.yaml` (happened for all seven ai@7 packages).
+- [toolchain] vitest jsdom env resolves `jsdom` as an **optional peer of vitest** → keep it a **workspace-root devDep** (pnpm resolves peers from the importer = root); per-file opt-in via `/** @vitest-environment jsdom */` pragma.
+- [react] RTL 16 + React 19 under vitest jsdom: set `globalThis.IS_REACT_ACT_ENVIRONMENT = true`; streaming state updates land fine via `waitFor`. jsdom has no fetch → `DefaultChatTransport` transparently uses Node's undici fetch, including SSE streaming.
+- [toolchain] `new Request(url, { body: Readable.toWeb(req), duplex: "half" })` — `duplex` is an undici extension absent from DOM `RequestInit`; type the init as `RequestInit & { duplex?: "half" }` (plain `as any` on the value doesn't silence TS2353).
+
+
 ### 2026-10-23 (M0-2 protocol session)
 - [zod] `zod@4.6.5` pinned exact in `@junior/protocol`; with package major 4, root `import { z } from "zod"` **is** the v4 API (no `zod/v4` subpath needed).
 - [zod] v4 `.default()` short-circuits parsing and requires the value to match the schema's **output** type: `ProvidersConfigSchema.default({})` fails to compile when a member field has its own default → `.default({ openaiCompatible: [] })`. Keys with `.default()` are optional in `z.input`, required in `z.output`/`z.infer`.
@@ -117,3 +129,4 @@
 - 2026-10-23 · M0-1 · monorepo scaffold green (typecheck/test/build/lint/format, protocol↔bridge import verified) · de84cf1
 - 2026-10-23 · M0-2 · all §3 schemas + config.ts frozen, 20 round-trip tests green, 2 forks → docs/decisions.md · 3cd22f4
 - 2026-10-23 · M0-3 · CLI flag matrix 10/10 vs CLI 2.1.309; --thinking/--permission-prompt-tool/--session-id surprises; plan §4.5 args rewritten; 3 forks → docs/decisions.md · c56ef25
+- 2026-10-23 · M0-4 · AI SDK pinned v7 (plan said v5); 5/5 spike tests incl. real-gateway streaming + tool-loop wire map; plan §2/§4.5/§5.3/§8 updated; 1 fork → docs/decisions.md; M0 complete → M1-1 next · 0f1e6fa
