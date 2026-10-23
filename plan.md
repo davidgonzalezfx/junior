@@ -403,24 +403,38 @@ Port ModelBridge's spawn (`modelbridge-clone/core/bridge_engine.py:775–830`) b
 const args = [
   cliPath, "-p", "-",
   "--output-format", "stream-json", "--verbose", "--include-partial-messages",
+  //                       ^--verbose is REQUIRED with stream-json in -p mode (verified M0-3)
+  "--tools", "",                          // zero built-ins: tool surface = exactly our MCP tools
   "--mcp-config", MCP_CONFIG_PATH,        // generated ~/.junior/mcp.json → our own /mcp endpoint
-  "--strict-mcp-config",
-  "--allowedTools", "mcp__junior_browser:*",   // pre-approve OUR tools at CLI level…
-  ...(allowCliNativeTools ? [] : ["--disallowedTools", "Bash,Read,Edit,Write,WebFetch,WebSearch,Task,Glob,Grep"]),
-  "--model", mapModel(body.model),
-  ...(effortSuffix ? ["--thinking", effortSuffix] : []),
-  ...(sessionIds.get(convId) ? ["--resume", sessionIds.get(convId)!] : []),
+  "--strict-mcp-config",                  // never inherit project/user MCP servers
+  "--allowedTools", "mcp__junior_browser:*",   // pre-approve OUR tools at CLI level; the *human*
+  //                                             approval still happens in the extension card, enforced
+  //                                             by the bridge guard — not by CLI permissions.
+  //                                             (--permission-prompt-tool exists but is rejected:
+  //                                              decisions.md 2026-10-23 — guard-side approval is
+  //                                              client-agnostic and the CLI has nothing to prompt for.)
+  "--model", mapModel(body.model),        // ALWAYS explicit — spawned children otherwise inherit
+  //                                        settings.json's model (observed in M0-3 spike)
+  ...(effort ? ["--effort", effort] : []),      // low|medium|high|xhigh|max; validate before spawn —
+  //                                               CLI only warns+ignores bad values (M0-3)
+  // (--thinking exists as enabled|adaptive|disabled; only add if product wants a hard toggle)
+  ...(sessionIds.has(convId)
+    ? ["--resume", sessionIds.get(convId)!]
+    : ["--session-id", sessionIds.set(convId, crypto.randomUUID()).get(convId)!]),  // convId-as-UUID
 ];
-// stdin: JSON line { role:"user", content: prompt } (stream-json input) — or plain text via `-p -`
+// stdin: stream-json user line {"type":"user","message":{"role":"user","content":…}} (verified M0-3)
+//        — or plain text via `-p -` (default --input-format text)
 ```
 
 - `~/.junior/mcp.json` points the CLI at `http://127.0.0.1:8620/mcp` with the token in its env/headers —
   so the CLI's browser tool calls traverse **the same dispatcher + guard + approval cards** as everyone else.
 - Pre-approving at CLI level is deliberate: the *human approval* still happens in the extension card, enforced
-  by the bridge guard, not by the CLI. (If the installed CLI version supports `--permission-prompt-tool`,
-  M0 spike should evaluate it as a nicer alternative — decision recorded in `docs/decisions.md`.)
-- Session continuity: capture `session_id` from the stream-json `init` event, store `convId → sessionId`,
-  pass `--resume` on subsequent turns (Autono/ModelBridge never did this).
+  by the bridge guard, not by the CLI. (`--permission-prompt-tool` was evaluated in the M0 spike and rejected —
+  it exists in 2.1.309 but guard-side approval is identical for every client and the flag has nothing to gate
+  once `--tools ""` removes native tools. See `docs/decisions.md` 2026-10-23.)
+- Session continuity: the bridge prescribes the UUID — `--session-id <uuid>` (convId-as-UUID) on first turn,
+  `--resume <uuid>` on subsequent turns (round trip verified in M0-3). `session_id` from the stream-json `init`
+  event is still parsed, for logs/debug only (Autono/ModelBridge never had continuity at all).
 - Stream mapping: `text_delta` → text parts; `thinking_delta` → reasoning parts (rendered collapsible);
   tool_use/tool_result events → AI SDK UI message stream tool parts; `result` → finish. Parse errors and
   CLI stderr → error part, never swallowed (ModelBridge hid failures in thought blocks — fixed).

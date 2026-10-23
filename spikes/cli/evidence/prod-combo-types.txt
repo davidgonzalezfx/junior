@@ -1,0 +1,6 @@
+     12 "type":"system"
+      2 "type":"message"
+      2 "type":"assistant"
+      1 "type":"thinking"
+      1 "type":"text"
+      1 "type":"result"

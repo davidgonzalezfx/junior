@@ -1,0 +1,5 @@
+      1 "type":"text"
+      1 "type":"system"
+      1 "type":"result"
+      1 "type":"message"
+      1 "type":"assistant"

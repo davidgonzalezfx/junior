@@ -1,0 +1,1 @@
+error: option '--thinking <mode>' argument 'low' is invalid. Allowed choices are enabled, adaptive, disabled.

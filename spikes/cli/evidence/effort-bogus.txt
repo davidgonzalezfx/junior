@@ -1,0 +1,9 @@
+Warning: Unknown --effort value 'bogus' — ignoring it and using the default effort. Valid values: low, medium, high, xhigh, max.
+Your message ("- x") looks accidental, so I haven't changed anything — but per protocol I've done the session start. Here's where things stand:
+
+**State:** M0-3 (CLI spike) is **already claimed** in `progress.md` ("Current task: M0-3 CLI spike, 2026-10-23 session") and partially started — there's uncommitted work:
+- `spikes/cli/flags.sh` — the flag-matrix script
+- `spikes/cli/evidence/permission-prompt-tool.txt` and `thinking.txt` — two evidence captures
+- The `progress.md` edit is just the task claim (nothing else uncommitted)
+
+**Milestone:** M0 in progress, 2/4 done (M0-1 scaffold, M0-2 protocol schemas). Next in order after M0-3 is M0-4 (AI SDK v5 sp

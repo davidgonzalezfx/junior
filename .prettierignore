@@ -4,3 +4,4 @@ node_modules/
 dist/
 .output/
 .wxt/
+spikes/cli/evidence/
