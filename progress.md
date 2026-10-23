@@ -5,7 +5,7 @@
 
 **Updated:** 2026-10-23
 **Current milestone:** M1 — Bridge core (✅ 4/4 — M1 complete)
-**Current task:** none claimed (**next up: M2-2** pairing onboarding + bridge-client; M3-1 may run in parallel per plan §8)
+**Current task:** M2-2 pairing onboarding + bridge-client (2026-10-23)
 **Current blockers:** none
 
 ---

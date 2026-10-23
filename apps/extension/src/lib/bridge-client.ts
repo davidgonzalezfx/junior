@@ -1,0 +1,105 @@
+// HTTP client for the local bridge (plan §5.2/§5.3). Thin on purpose: every call goes
+// through `bridgeFetch`, which classifies failures into unreachable vs HTTP-error so the
+// UI (onboarding, status bar) can say "start the bridge" vs "re-pair" instead of a raw
+// fetch stack trace. Backoff helpers are pure and unit-tested.
+import {
+  BridgeStatusSchema,
+  PairingResultSchema,
+  PairingStatusSchema,
+  type BridgeStatus,
+  type PairingResult,
+  type PairingStatus,
+} from "@junior/protocol";
+
+/** The bridge is down (fetch threw) — no HTTP status exists. */
+export class BridgeUnreachableError extends Error {
+  constructor(cause: unknown) {
+    super("bridge unreachable — is `junior-bridge serve` running?", { cause });
+    this.name = "BridgeUnreachableError";
+  }
+}
+
+/** The bridge answered with a non-2xx status (401/403 → re-pair, 500 → bug). */
+export class BridgeHttpError extends Error {
+  constructor(
+    readonly status: number,
+    readonly wireError: string | null,
+  ) {
+    super(`bridge responded ${status}${wireError ? `: ${wireError}` : ""}`);
+    this.name = "BridgeHttpError";
+  }
+
+  /** 401/403 mean the stored token is wrong or missing — the only recoverable case. */
+  get authFailed(): boolean {
+    return this.status === 401 || this.status === 403;
+  }
+}
+
+interface RequestOptions {
+  method?: "GET" | "POST";
+  token?: string;
+  body?: unknown;
+}
+
+async function bridgeFetch<T>(
+  baseUrl: string,
+  path: string,
+  parse: (raw: unknown) => T,
+  opts: RequestOptions = {},
+): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}${path}`, {
+      method: opts.method ?? "GET",
+      headers: {
+        ...(opts.token !== undefined ? { Authorization: `Bearer ${opts.token}` } : {}),
+        ...(opts.body !== undefined ? { "Content-Type": "application/json" } : {}),
+      },
+      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    });
+  } catch (cause) {
+    throw new BridgeUnreachableError(cause);
+  }
+  if (!res.ok) {
+    const wire = (await res.json().catch(() => null)) as { error?: unknown } | null;
+    throw new BridgeHttpError(res.status, typeof wire?.error === "string" ? wire.error : null);
+  }
+  return parse(await res.json());
+}
+
+/** GET /api/health — liveness only (§3 HTTP table). Returns the wire `ok` flag. */
+export async function fetchHealth(baseUrl: string): Promise<boolean> {
+  const body = await bridgeFetch(baseUrl, "/api/health", (raw) => raw as { ok: boolean });
+  return body.ok === true;
+}
+
+/** GET /api/pairing — unauthenticated onboarding probe (§4.1). */
+export async function fetchPairingStatus(baseUrl: string): Promise<PairingStatus> {
+  return bridgeFetch(baseUrl, "/api/pairing", (raw) => PairingStatusSchema.parse(raw));
+}
+
+/** POST /api/pairing — register our token; 403 when the bridge holds a different one. */
+export async function postPairing(baseUrl: string, token: string): Promise<PairingResult> {
+  return bridgeFetch(baseUrl, "/api/pairing", (raw) => PairingResultSchema.parse(raw), {
+    method: "POST",
+    body: { token },
+  });
+}
+
+/** GET /api/status — bridge facts + providers (drives onboarding step 3; M2-4 picker). */
+export async function fetchStatus(baseUrl: string, token: string): Promise<BridgeStatus> {
+  return bridgeFetch(baseUrl, "/api/status", (raw) => BridgeStatusSchema.parse(raw), { token });
+}
+
+/**
+ * Exponential backoff for poll loops (plan §5.2: 1 s → 30 s, jitter). Attempt 0 = first
+ * failure. Pure so tests can pin the sequence; jitter (≤ 250 ms) keeps extension
+ * restart-storms from synchronizing on the bridge.
+ */
+export function nextDelayMs(attempt: number, baseMs = 1000, maxMs = 30_000): number {
+  const exp = Math.min(baseMs * 2 ** attempt, maxMs);
+  return exp + Math.floor(Math.random() * 250);
+}
+
+/** Healthy-state poll cadence for the status bar (plan §5.3: every 5 s). */
+export const HEALTHY_POLL_MS = 5000;

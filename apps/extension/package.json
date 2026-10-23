@@ -9,6 +9,7 @@
     "build": "wxt build",
     "zip": "wxt zip",
     "typecheck": "wxt prepare && tsc --noEmit",
+    "test": "vitest run",
     "serve": "wxt build && (open -a 'Google Chrome' .output/chrome-mv3 2>/dev/null || echo 'load .output/chrome-mv3 via chrome://extensions (Developer mode → Load unpacked)')"
   },
   "dependencies": {
@@ -26,6 +27,7 @@
     "@types/react-dom": "19.3.0",
     "@wxt-dev/module-react": "1.2.2",
     "tailwindcss": "4.3.3",
+    "vitest": "5.0.5",
     "wxt": "0.21.4"
   }
 }
