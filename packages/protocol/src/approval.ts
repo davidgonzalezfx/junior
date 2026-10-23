@@ -3,21 +3,23 @@
 // (Autono rule, keep it — plan §6.3).
 import { z } from "zod";
 
+// Why a card would be raised (plan §4.4 matrix). Named so the pure guard tables
+// (guard.ts) and the approval card share one vocabulary.
+export const GuardReasonCodeSchema = z.enum([
+  "new_site",
+  "sensitive_site",
+  "private_network",
+  "form_submit",
+  "sensitive_label",
+  "secret_field",
+  "incognito",
+  "routine_supervised",
+]);
+
+export type GuardReasonCode = z.infer<typeof GuardReasonCodeSchema>;
+
 export const ApprovalRequestSchema = z.object({
-  reasonCodes: z
-    .array(
-      z.enum([
-        "new_site",
-        "sensitive_site",
-        "private_network",
-        "form_submit",
-        "sensitive_label",
-        "secret_field",
-        "incognito",
-        "routine_supervised",
-      ]),
-    )
-    .max(8),
+  reasonCodes: z.array(GuardReasonCodeSchema).max(8),
   reasons: z.array(z.string().max(200)).max(8), // human text for the card
   pageUrl: z.string().max(2048),
   destinationUrl: z.string().max(2048).optional(),
