@@ -5,7 +5,7 @@
 
 **Updated:** 2026-10-23
 **Current milestone:** M0 — Scaffold + spike
-**Current task:** none claimed (M0-1 done; **next up: M0-2** protocol schemas)
+**Current task:** none claimed (M0-2 done; **next up: M0-3** CLI spike)
 **Current blockers:** none
 
 ---
@@ -14,7 +14,7 @@
 
 | Milestone | State | Notes |
 |---|---|---|
-| M0 Scaffold + spike (protocol schemas, CLI flags spike, AI SDK spike) | 🔶 in progress (1/4) | gates CLI engine design; verify `--resume`, `--allowedTools`, `--mcp-config`, `--thinking` against installed CLI |
+| M0 Scaffold + spike (protocol schemas, CLI flags spike, AI SDK spike) | 🔶 in progress (2/4) | gates CLI engine design; verify `--resume`, `--allowedTools`, `--mcp-config`, `--thinking` against installed CLI |
 | M1 Bridge core (Hono, auth, dispatcher, guard, status) | ⬜ blocked by M0 | |
 | M2 Extension shell + chat (WXT, useChat, ⌘K picker, settings, history) | ⬜ blocked by M1 | parallelizable with M3 |
 | M3 Browser tool layer (executors, read_page, approvals, overlay) | ⬜ blocked by M1 | parallelizable with M2 |
@@ -25,7 +25,7 @@
 ## M0 checklist
 
 - [x] M0-1 pnpm monorepo scaffold (workspaces, strict tsconfig, eslint/prettier, node 22) — gates green: `pnpm -r typecheck/test/build` + lint + format; commit de84cf1
-- [ ] M0-2 `packages/protocol` — all plan §3 schemas + round-trip tests
+- [x] M0-2 `packages/protocol` — all plan §3 schemas + round-trip tests — zod@4.6.5 pinned; actions/queue/approval/chat/status + `config.ts` (§4.1); 20 tests green: `pnpm -r typecheck/test/build` + lint + format OK; 2 forks recorded in `docs/decisions.md`; commit 3cd22f4
 - [ ] M0-3 ★ CLI spike: run plan §4.5 flag matrix against installed `claude`; record results in Learnings
 - [ ] M0-4 ★ AI SDK v5 spike: `streamText` (anthropic + openai-compatible) → `toUIMessageStream` → `useChat`
 
@@ -87,9 +87,17 @@
 - [extension] Autono work overlay blocks *trusted* user clicks via `e.isTrusted` filter while automation proceeds (content/content.js:29) — keep this trick.
 - [security] Autono permission matrix + sensitive-site tables at background.js:1913–1963 and lib/autono-security.js:283 — port verbatim (plan §4.4).
 
+### 2026-10-23 (M0-2 protocol session)
+- [zod] `zod@4.6.5` pinned exact in `@junior/protocol`; with package major 4, root `import { z } from "zod"` **is** the v4 API (no `zod/v4` subpath needed).
+- [zod] v4 `.default()` short-circuits parsing and requires the value to match the schema's **output** type: `ProvidersConfigSchema.default({})` fails to compile when a member field has its own default → `.default({ openaiCompatible: [] })`. Keys with `.default()` are optional in `z.input`, required in `z.output`/`z.infer`.
+- [docs] context7 accepts pinned versions as libraryId — `/colinhacks/zod/v4.6.5` returns version-exact docs.
+- [toolchain] `pnpm add` triggers root postinstall (`pnpm -r build`) **at install time** — dist is stale if you add deps before writing source; `pnpm -r build` in the green gate catches it, but don't trust a freshly-installed dist mid-session.
+
+
 ## Session log
 
 > One line per session: `date · task(s) · outcome · commit`
 
 - 2026-10-23 · planning · plan.md + CLAUDE.md + progress.md written from RE of Autono/ModelBridge · —
 - 2026-10-23 · M0-1 · monorepo scaffold green (typecheck/test/build/lint/format, protocol↔bridge import verified) · de84cf1
+- 2026-10-23 · M0-2 · all §3 schemas + config.ts frozen, 20 round-trip tests green, 2 forks → docs/decisions.md · 3cd22f4
