@@ -111,3 +111,25 @@ default flipped to `"anthropic"`, plus a `.refine` biconditional
 `(engine === "cli") === (provider === "claude-cli")`. Choice: **(b)** — keeps the plan's flat body
 shape and minimal-body ergonomics, and mismatches get one clear error message.
 Affects: `packages/protocol/src/queue.ts`, `packages/protocol/src/chat.ts`, plan §3 snippets.
+
+## 2026-10-23 · Extension id pinned via manifest `key` (M2-1) — CORS wildcard retired
+
+Context: M1-1 allowed any `chrome-extension://[a-p]{32}` origin because an unpacked extension's id is
+only stable once the manifest carries a `key`. Options: (a) keep the wildcard until store publication;
+(b) generate an RSA-2048 keypair now, put the public half in the manifest `key`, and tighten the bridge
+allowlist to the derived id. Choice: **(b)** — the id (`ocjlcgidjeodnjicogfmmicpkookeabb`, derived as
+SHA-256 of the SPKI DER, first 16 bytes, hex digits mapped a–p) is stable across reinstalls of the
+unpacked build, so CORS can be exact. Private key lives at `~/.junior/extension-key.pem` (0600, never
+committed); the id is exported as `EXTENSION_ORIGIN` from `@junior/protocol` (single source for the
+bridge allowlist and the extension, tripwire test asserts the shape).
+Affects: `apps/extension/wxt.config.ts`, `packages/protocol/src/config.ts`, `apps/bridge/src/auth.ts`, plan §4.2.
+
+## 2026-10-23 · shadcn/ui vendored by hand (M2-1), not via the init CLI
+
+Context: plan §5.3 calls for shadcn/ui in the panel. Options: (a) run `pnpm dlx shadcn@latest init` in
+the WXT app; (b) follow shadcn's documented manual-install path — `components.json`, Tailwind v4
+`@theme inline` CSS variables, `cn()` util, components copied into `src/components/ui`. Choice: **(b)**
+— the CLI assumes a framework-shaped project (framework detection, src-dir guesses) and would fight
+WXT's `srcDir`/alias layout; manual install is the upstream-supported path, keeps every component
+reviewable, and future `shadcn add <component>` still works because `components.json` is present.
+Affects: `apps/extension/{components.json,tsconfig.json}`, `apps/extension/src/{lib/utils.ts,components/ui/*,entrypoints/sidepanel/style.css}`.

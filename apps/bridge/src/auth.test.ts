@@ -1,9 +1,13 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
+import { EXTENSION_ORIGIN } from "@junior/protocol";
+
 import { bearerAuth, corsAllowlist, isAllowedOrigin, tokensMatch } from "./auth.js";
 
 const TOKEN = "a".repeat(64);
-const EXT_ORIGIN = `chrome-extension://${"abcdefghijklmnop".repeat(2)}`; // 32 chars of [a-p]
+const EXT_ORIGIN = EXTENSION_ORIGIN; // pinned in apps/extension/wxt.config.ts (M2-1)
+// A well-formed but foreign extension id — must NOT be allowed now that the id is pinned.
+const FOREIGN_EXT_ORIGIN = `chrome-extension://${"abcdefghijklmnop".repeat(2)}`;
 
 function appWithAuth(token: string | null, log = vi.fn()) {
   const app = new Hono()
@@ -68,6 +72,11 @@ describe("isAllowedOrigin (§4.2 allowlist)", () => {
     expect(isAllowedOrigin(EXT_ORIGIN)).toBe(true);
     expect(isAllowedOrigin("http://localhost:5173")).toBe(true);
     expect(isAllowedOrigin("http://127.0.0.1:8620")).toBe(true);
+  });
+
+  it("rejects a foreign extension id now that the manifest pins ours (M2-1)", () => {
+    expect(FOREIGN_EXT_ORIGIN).toMatch(/^chrome-extension:\/\/[a-p]{32}$/); // well-formed…
+    expect(isAllowedOrigin(FOREIGN_EXT_ORIGIN)).toBe(false); // …but not ours
   });
 
   it("rejects web origins, weird schemes, and missing headers", () => {

@@ -5,7 +5,7 @@
 
 **Updated:** 2026-10-23
 **Current milestone:** M1 — Bridge core (✅ 4/4 — M1 complete)
-**Current task:** none claimed (**next up: M2-1** WXT scaffold; M3-1 may run in parallel per plan §8)
+**Current task:** none claimed (**next up: M2-2** pairing onboarding + bridge-client; M3-1 may run in parallel per plan §8)
 **Current blockers:** none
 
 ---
@@ -16,7 +16,7 @@
 |---|---|---|
 | M0 Scaffold + spike (protocol schemas, CLI flags spike, AI SDK spike) | ✅ done (4/4) | AI SDK pinned to **v7** in M0-4 (plan said v5 — decisions.md); M1 unblocked |
 | M1 Bridge core (Hono, auth, dispatcher, guard, status) | ✅ done (4/4) | M1-4 guard: pure tables/matrix in `@junior/protocol` + SessionGuard in bridge; M2/M3 unblocked (parallelizable per plan §8) |
-| M2 Extension shell + chat (WXT, useChat, ⌘K picker, settings, history) | ⬜ blocked by M1 | parallelizable with M3 |
+| M2 Extension shell + chat (WXT, useChat, ⌘K picker, settings, history) | ◐ 1/5 in progress | M2-1 scaffold done (id pinned, CORS tightened); M2-2 next |
 | M3 Browser tool layer (executors, read_page, approvals, overlay) | ⬜ blocked by M1 | parallelizable with M2 |
 | M4 MCP server + agent paths (streamable HTTP, stdio proxy, CLI engine) | ⬜ blocked by M1+M3 | terminal-Claude e2e is the headline demo |
 | M5 Polish + hardening | ⬜ blocked by M4 | security + perf passes per plan §8 |
@@ -40,7 +40,7 @@
 
 ## M2 checklist
 
-- [ ] M2-1 WXT scaffold: SW skeleton, React panel, Tailwind+shadcn, manifest per plan §5.1
+- [x] M2-1 WXT scaffold: SW skeleton, React panel, Tailwind+shadcn, manifest per plan §5.1 — done. `apps/extension/`: wxt@0.21.4 (`srcDir:"src"`, `@wxt-dev/module-react`, `alias @→src`), manifest per §5.1 (verified in `.output/chrome-mv3/manifest.json`: MV3, min chrome 120, perms storage/scripting/activeTab/sidePanel/tabs/alarms, host_permissions `http://127.0.0.1:8620/*` only, tight CSP `script-src 'self'; connect-src 'self' http://127.0.0.1:8620`, no web_accessible_resources, no static content_scripts) + **pinned id**: RSA-2048 keypair → `manifest.key` ↔ `EXTENSION_ORIGIN` in `@junior/protocol` (tripwire test) ↔ bridge allowlist (id `ocjlcgidjeodnjicogfmmicpkookeabb`; private key `~/.junior/extension-key.pem` 0600, uncommitted; derivation key→id verified programmatically). SW skeleton (`defineBackground`: setPanelBehavior on action click + storage.local.setAccessLevel TRUSTED_CONTEXTS port of Autono background.js:38); sidepanel React 19 + Tailwind v4 (`@tailwindcss/vite`) + shadcn vendored by hand (components.json, cn, Button; decisions.md). Gates: `pnpm -r typecheck/test/build` + lint + format:check green (extension builds 267 kB; 148 protocol + 103 bridge + 5 spike tests). Acceptance: `wxt build` output inspected vs §5.1; live bridge boot — preflight with pinned origin → 204 + ACAO echo + PNA, well-formed foreign `[a-p]{32}` id → bare 204, **zero** access-control headers. Commits (see session log)
 - [ ] M2-2 Pairing onboarding + `bridge-client.ts` (token, backoff, health poll)
 - [ ] M2-3 `useChat` → `/api/chat` engine `api` (Anthropic + OpenRouter), markdown streaming
 - [ ] M2-4 ⌘K picker (cmdk) from `/api/status` + Settings→Providers CRUD + fallback chain
@@ -148,7 +148,17 @@
 - [bridge] A long-poll landing between `dispatch()` and the guard verdict pings `connected()` (poll ⇒ touch), so the "no panel ⇒ deny" early-return is timing-dependent in tests — with a concurrent poller the card IS delivered. Correct prod behavior; tests must answer cards they caused.
 - [zod] Object-literal reason-code arrays in tests widen to `string[]` and fail `.enum` typing — `as const` on the test arrays (runtime parse unaffected).
 
+### 2026-10-23 (M2-1 WXT scaffold session — wxt@0.21.4, tailwindcss@4.3.3, react@19.3.1)
+- [wxt] `@wxt-dev/module-react` configures Vite only — it does NOT set `jsx` in the generated `.wxt/tsconfig.json`; add `"jsx": "react-jsx"` yourself or `wxt build` is green while `tsc --noEmit` fails with TS17004.
+- [wxt] Generated `.wxt/tsconfig.json` already carries strict + noUncheckedIndexedAccess + noImplicitOverride + verbatimModuleSyntax + `paths` mirrored from wxt.config `alias` (`@`/`~`/`@@`/`~~`) — the extension tsconfig only adds extras on top of `extends`.
+- [wxt] Prefer WXT's auto-imported `browser` global (typed via @wxt-dev/browser 0.3.6) over `chrome.*` + `@types/chrome`: `sidePanel.setPanelBehavior` AND `storage.local.setAccessLevel` are both typed (setAccessLevel doc: local/sync default to trusted+untrusted contexts — the Autono background.js:38 call is what keeps content scripts out).
+- [wxt] Manifest wiring: a `sidepanel/` entrypoint auto-adds the `sidePanel` permission and `side_panel.default_path`; opening the panel on toolbar click is NOT manifest-wired in MV3 — call `browser.sidePanel.setPanelBehavior({openPanelOnActionClick:true})` in the SW; `manifest.key` passes straight through and Chrome derives the stable id.
+- [chrome] Unpacked-id derivation: SHA-256 of the manifest key's SPKI DER, first 16 bytes, hex-encoded, each hex digit 0-9a-f mapped to a-p (32 chars). Verified key→id programmatically; id `ocjlcgidjeodnjicogfmmicpkookeabb`.
+- [pnpm] `pnpm add` runs root postinstall (`pnpm -r build`) mid-add — a first add that introduces a new build tool fails its postinstall (`wxt build` before wxt is linked); complete the dependent add and the gate re-runs clean.
+- [env] This mac runs nvm node 22.22.1 with `corepack enable` (user-writable nvm bin — the `/usr/local` EACCES from earlier sessions doesn't apply). CLAUDE.md's `/workspace/autono-clone` reference path does NOT exist here; the clones live at `~/Personal/rea/{autono,modelbridge}-clone` (read-only rules unchanged).
+
 ### 2026-10-23 (M0-2 protocol session)
+
 - [zod] `zod@4.6.5` pinned exact in `@junior/protocol`; with package major 4, root `import { z } from "zod"` **is** the v4 API (no `zod/v4` subpath needed).
 - [zod] v4 `.default()` short-circuits parsing and requires the value to match the schema's **output** type: `ProvidersConfigSchema.default({})` fails to compile when a member field has its own default → `.default({ openaiCompatible: [] })`. Keys with `.default()` are optional in `z.input`, required in `z.output`/`z.infer`.
 - [docs] context7 accepts pinned versions as libraryId — `/colinhacks/zod/v4.6.5` returns version-exact docs.
@@ -182,3 +192,4 @@
 - 2026-10-23 · M1-2 · dispatcher green: AsyncQueue/futures + long-poll /api/agent/* + approvals-on-queue with fake-executor wire tests + live curl; review items landed (queue union, chat engine/provider check) → protocol 27 + bridge 58 tests; M1 2/4 · 75e0c32, 1b3c41b
 - 2026-10-23 · M1-3 · /api/status green: cli-detect port (auth_status.py + config.py:49–71) verified live against CLI 2.1.309, provider entries from config + detection, dispatcher freshness/queue depth; 82 bridge tests + live curl acceptance; plan §4.5 updated; M1 3/4 · 7b36372, 0f6d4ed
 - 2026-10-23 · M1-4 · guard green: pure tables/matrix in @junior/protocol (Autono battery ported) + SessionGuard enforcement wired as createApp default; navigate→card→site→execute + deny→USER_DENIED proven over the real app; 146 protocol + 102 bridge tests + live boot; plan §4.4/§5.2 updated; **M1 complete → M2-1 next (M3-1 parallel)** · 53a62d9, 1f969e9
+- 2026-10-23 · M2-1 · WXT scaffold green: manifest per §5.1 verified in build output, extension id pinned (key ↔ EXTENSION_ORIGIN ↔ bridge allowlist), SW skeleton + React/Tailwind-v4/shadcn panel, CORS tightened live (pinned echo, foreign bare-204); 148 protocol + 103 bridge tests · (hashes below)

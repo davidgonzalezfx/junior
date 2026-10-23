@@ -3,6 +3,8 @@
 // non-public route demands `Authorization: Bearer <token>` compared constant-time, and
 // responses carry CORS headers only for the extension/loopback origins.
 import { createHash, timingSafeEqual } from "node:crypto";
+
+import { EXTENSION_ORIGIN } from "@junior/protocol";
 import { createMiddleware } from "hono/factory";
 
 export type Logger = (line: string) => void;
@@ -16,15 +18,13 @@ export function tokensMatch(presented: string, stored: string): boolean {
   return timingSafeEqual(digest(presented), digest(stored));
 }
 
-// Reader origins: our extension + loopback pages. Any 32-char [a-p] extension id is accepted
-// until the manifest pins a key (M2-1) — see docs/decisions.md. A foreign page/origin gains
-// nothing: without the token its mutations still fail auth, it just can't read responses.
+// Reader origins: our pinned extension (EXTENSION_ORIGIN — manifest key in
+// apps/extension/wxt.config.ts, docs/decisions.md 2026-10-23) + loopback pages. A foreign
+// page/origin gains nothing: without the token its mutations still fail auth, it just
+// can't read responses.
 export function isAllowedOrigin(origin: string | undefined): boolean {
   if (!origin) return false;
-  return (
-    /^chrome-extension:\/\/[a-p]{32}$/.test(origin) ||
-    /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
-  );
+  return origin === EXTENSION_ORIGIN || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
 }
 
 // §4.2: only /api/health and GET /api/pairing are open. Checked inside the middleware (not by

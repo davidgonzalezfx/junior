@@ -319,8 +319,9 @@ same shape as ModelBridge `mcp_server.py` but **sending the token** from `~/.jun
 - CORS: `Access-Control-Allow-Origin` echoed **only** for `chrome-extension://<our-id>` and
   `http://localhost:*` / `http://127.0.0.1:*`; `Access-Control-Allow-Private-Network: true` only for those
   origins. Everything else: no ACAO header (request may still execute but the page can't read the response —
-  and mutations still require the token, which a page doesn't have). (M1-1 accepts any
-  `chrome-extension://[a-p]{32}` id until the manifest pins a key — `docs/decisions.md` 2026-10-23.)
+  and mutations still require the token, which a page doesn't have). (M2-1 pinned the id: the manifest
+  `key` in `apps/extension/wxt.config.ts` ↔ `EXTENSION_ORIGIN` in `@junior/protocol` ↔ this allowlist
+  are one identity — `docs/decisions.md` 2026-10-23.)
 - Bind `127.0.0.1` only. Log every rejected auth attempt (origin + path), rate-limit `POST /mcp` tool calls
   (e.g. 30/min burst) as a quota-burn brake.
 
