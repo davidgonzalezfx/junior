@@ -5,7 +5,11 @@ import {
   BridgeStatusSchema,
   BrowserActionSchema,
   ChatRequestBodySchema,
+  ExtensionSettingsSchema,
   JuniorConfigSchema,
+  PairingRequestSchema,
+  PairingResultSchema,
+  PairingStatusSchema,
   PROTOCOL_API_LEVEL,
   QueueItemSchema,
   ActionResultSchema,
@@ -227,5 +231,51 @@ describe("JuniorConfigSchema (plan §4.1)", () => {
   it("rejects out-of-range port/maxSteps", () => {
     expect(() => JuniorConfigSchema.parse({ port: 0 })).toThrow();
     expect(() => JuniorConfigSchema.parse({ maxSteps: 101 })).toThrow();
+  });
+});
+
+describe("ExtensionSettingsSchema (plan §5.2)", () => {
+  it("fills every default from an empty store", () => {
+    expect(ExtensionSettingsSchema.parse({})).toEqual({
+      bridgeUrl: "http://127.0.0.1:8620",
+      permissionMode: "ask",
+      allowCliNativeTools: false,
+    });
+  });
+
+  it("parses an overridden settings object and JSON round-trips it", () => {
+    const settings = ExtensionSettingsSchema.parse({
+      bridgeUrl: "http://127.0.0.1:9999",
+      permissionMode: "auto",
+      allowCliNativeTools: true,
+    });
+    expect(ExtensionSettingsSchema.parse(JSON.parse(JSON.stringify(settings)))).toEqual(settings);
+  });
+
+  it("rejects unknown permission modes", () => {
+    expect(() => ExtensionSettingsSchema.parse({ permissionMode: "yolo" })).toThrow();
+  });
+});
+
+describe("Pairing schemas (plan §3 HTTP table + §4.1)", () => {
+  const token = "a".repeat(64); // 32 bytes hex
+
+  it("parses the onboarding probe shape", () => {
+    expect(PairingStatusSchema.parse({ tokenRequired: true, tokenSet: false })).toEqual({
+      tokenRequired: true,
+      tokenSet: false,
+    });
+  });
+
+  it("requires the token to be 32 bytes hex in a pairing request", () => {
+    expect(PairingRequestSchema.parse({ token })).toEqual({ token });
+    expect(() => PairingRequestSchema.parse({ token: "abc" })).toThrow(); // too short
+    expect(() => PairingRequestSchema.parse({ token: token.replace(/a/g, "g") })).toThrow(); // not hex
+  });
+
+  it("parses the idempotent result and JSON round-trips it", () => {
+    const result = PairingResultSchema.parse({ ok: true, alreadyPaired: true });
+    expect(PairingResultSchema.parse(JSON.parse(JSON.stringify(result)))).toEqual(result);
+    expect(() => PairingResultSchema.parse({ ok: false, alreadyPaired: false })).toThrow();
   });
 });

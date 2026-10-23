@@ -107,7 +107,8 @@ junior/
 │        ├─ approval.ts           ← ApprovalRequestSchema, ApprovalDecision
 │        ├─ chat.ts               ← ChatRequestBody (engine, model, provider, tools…)
 │        ├─ status.ts             ← BridgeStatusSchema (providers, cli detection)
-│        └─ config.ts             ← BridgeConfigSchema, ExtensionSettingsSchema
+│        ├─ pairing.ts            ← PairingStatus/Request/ResultSchema (GET/POST /api/pairing, table in §3)
+│        └─ config.ts             ← JuniorConfigSchema (§4.1), ExtensionSettingsSchema (§5.2)
 ├─ apps/
 │  ├─ bridge/                     ← name: @junior/bridge
 │  │  ├─ package.json             ← hono, @modelcontextprotocol/sdk, ai, @ai-sdk/anthropic,
@@ -259,6 +260,15 @@ export const BridgeStatusSchema = z.object({
   browserConnected: z.boolean(),               // extension polled within 25 s
   queueDepth: z.number().int(),
 });
+```
+
+```ts
+// pairing.ts — GET/POST /api/pairing (see HTTP table below); frozen M1-1.
+// config.ts also holds ExtensionSettingsSchema (the extension's chrome.storage mirror, §5.2):
+// {bridgeUrl: "http://127.0.0.1:8620", permissionMode: "ask"|"auto"|"none", allowCliNativeTools: bool}.
+export const PairingStatusSchema = z.object({ tokenRequired: z.boolean(), tokenSet: z.boolean() }); // GET, no auth
+export const PairingRequestSchema = z.object({ token: z.string().regex(/^[0-9a-f]{64}$/) });        // POST body
+export const PairingResultSchema = z.object({ ok: z.literal(true), alreadyPaired: z.boolean() });   // POST response
 ```
 
 ### Bridge HTTP surface (complete list)

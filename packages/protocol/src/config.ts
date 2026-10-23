@@ -30,3 +30,14 @@ export const JuniorConfigSchema = z.object({
 });
 
 export type JuniorConfig = z.infer<typeof JuniorConfigSchema>;
+
+// Extension-side mirror of the bridge facts it needs (plan §5.2 item 1) — stored in
+// chrome.storage.local, never in ~/.junior/. permissionMode/allowCliNativeTools mirror
+// JuniorConfigSchema fields so the extension can display + pre-check them.
+export const ExtensionSettingsSchema = z.object({
+  bridgeUrl: z.string().default("http://127.0.0.1:8620"),
+  permissionMode: z.enum(["ask", "auto", "none"]).default("ask"),
+  allowCliNativeTools: z.boolean().default(false),
+});
+
+export type ExtensionSettings = z.infer<typeof ExtensionSettingsSchema>;

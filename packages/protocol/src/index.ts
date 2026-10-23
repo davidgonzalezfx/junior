@@ -6,5 +6,6 @@ export * from "./actions.js";
 export * from "./approval.js";
 export * from "./chat.js";
 export * from "./config.js";
+export * from "./pairing.js";
 export * from "./queue.js";
 export * from "./status.js";
