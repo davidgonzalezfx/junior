@@ -1,0 +1,9 @@
+packages:
+  - apps/*
+  - packages/*
+
+# pnpm 10+ blocks lifecycle scripts by default; esbuild's postinstall is an
+# optimization check only (the platform binary ships as an optional dep), but
+# approving it keeps install output clean.
+onlyBuiltDependencies:
+  - esbuild

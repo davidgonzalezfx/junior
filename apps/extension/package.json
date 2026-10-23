@@ -1,0 +1,7 @@
+{
+  "name": "@junior/extension",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Junior Chrome MV3 extension — WXT + React side panel (plan §5). WXT scaffold lands in M2-1; this stub only reserves the workspace slot."
+}

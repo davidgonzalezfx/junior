@@ -1,0 +1,14 @@
+{
+  "name": "@junior/bridge",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Junior bridge — Hono on 127.0.0.1:8620: chat engines, dispatcher, MCP server (plan §4). Implementation starts M1-1.",
+  "dependencies": {
+    "@junior/protocol": "workspace:*"
+  },
+  "scripts": {
+    "typecheck": "tsc -p . --noEmit",
+    "test": "vitest run --passWithNoTests"
+  }
+}
