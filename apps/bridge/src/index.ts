@@ -1,8 +1,11 @@
 // @junior/bridge — Hono app on 127.0.0.1:8620 (plan §1, §4).
-// M1-1: health + pairing + auth/CORS. Dispatcher (M1-2), /api/status (M1-3), guard (M1-4),
-// chat engines + MCP server (M4) mount below the auth middleware as they land.
+// M1-1: health + pairing + auth/CORS. M1-2: dispatcher long-poll (/api/agent/*).
+// /api/status (M1-3), guard (M1-4), chat engines + MCP server (M4) mount below the
+// auth middleware as they land.
 import { Hono } from "hono";
 import { PairingRequestSchema, PairingResultSchema, PairingStatusSchema } from "@junior/protocol";
+import { Dispatcher } from "./dispatcher/queue.js";
+import { agentRoutes } from "./dispatcher/routes.js";
 import { bearerAuth, corsAllowlist, tokensMatch, type Logger } from "./auth.js";
 import {
   consumePairingWindow,
@@ -17,10 +20,13 @@ export interface BridgeDeps {
   dir: string;
   /** Operational log (rejected auth, pairing) — defaults to console.warn. */
   log?: Logger;
+  /** Dispatcher seam for tests; each app gets a fresh one by default. */
+  dispatcher?: Dispatcher;
 }
 
 export function createApp(deps: BridgeDeps = { dir: juniorDir() }) {
   const log: Logger = deps.log ?? ((line) => console.warn(line));
+  const dispatcher = deps.dispatcher ?? new Dispatcher();
   const app = new Hono();
 
   app.use("*", corsAllowlist());
@@ -77,8 +83,9 @@ export function createApp(deps: BridgeDeps = { dir: juniorDir() }) {
     bearerAuth(() => readToken(deps.dir), log),
   );
 
-  // M1-2 mounts /api/agent/* (dispatcher) and M1-3 mounts /api/status here — both fall
-  // under the middleware above automatically.
+  // M1-2: dispatcher long-poll + result/approval posts (fall under auth above).
+  // M1-3 mounts /api/status here.
+  app.route("/api/agent", agentRoutes(dispatcher));
 
   app.notFound((c) => c.json({ error: "not found" }, 404));
   app.onError((err, c) => {
