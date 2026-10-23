@@ -5,7 +5,7 @@
 
 **Updated:** 2026-10-23
 **Current milestone:** M0 — Scaffold + spike
-**Current task:** none claimed (M0-2 done; **next up: M0-3** CLI spike)
+**Current task:** none claimed (M0-3 done; **next up: M0-4** AI SDK v5 spike)
 **Current blockers:** none
 
 ---
@@ -14,7 +14,7 @@
 
 | Milestone | State | Notes |
 |---|---|---|
-| M0 Scaffold + spike (protocol schemas, CLI flags spike, AI SDK spike) | 🔶 in progress (2/4) | gates CLI engine design; verify `--resume`, `--allowedTools`, `--mcp-config`, `--thinking` against installed CLI |
+| M0 Scaffold + spike (protocol schemas, CLI flags spike, AI SDK spike) | 🔶 in progress (3/4) | M0-3 verified the full §4.5 flag matrix vs CLI 2.1.309 — 3 forks in docs/decisions.md, plan §4.5 args rewritten |
 | M1 Bridge core (Hono, auth, dispatcher, guard, status) | ⬜ blocked by M0 | |
 | M2 Extension shell + chat (WXT, useChat, ⌘K picker, settings, history) | ⬜ blocked by M1 | parallelizable with M3 |
 | M3 Browser tool layer (executors, read_page, approvals, overlay) | ⬜ blocked by M1 | parallelizable with M2 |
@@ -26,7 +26,7 @@
 
 - [x] M0-1 pnpm monorepo scaffold (workspaces, strict tsconfig, eslint/prettier, node 22) — gates green: `pnpm -r typecheck/test/build` + lint + format; commit de84cf1
 - [x] M0-2 `packages/protocol` — all plan §3 schemas + round-trip tests — zod@4.6.5 pinned; actions/queue/approval/chat/status + `config.ts` (§4.1); 20 tests green: `pnpm -r typecheck/test/build` + lint + format OK; 2 forks recorded in `docs/decisions.md`; commit 3cd22f4
-- [ ] M0-3 ★ CLI spike: run plan §4.5 flag matrix against installed `claude`; record results in Learnings
+- [x] M0-3 ★ CLI spike: run plan §4.5 flag matrix against installed `claude`; record results in Learnings — `spikes/cli/flags.sh` 10/10 PASS vs Claude Code 2.1.309; 3 forks → docs/decisions.md (args updated in plan §4.5); evidence extracts in spikes/cli/evidence/; commit c56ef25
 - [ ] M0-4 ★ AI SDK v5 spike: `streamText` (anthropic + openai-compatible) → `toUIMessageStream` → `useChat`
 
 ## M1 checklist
@@ -87,11 +87,26 @@
 - [extension] Autono work overlay blocks *trusted* user clicks via `e.isTrusted` filter while automation proceeds (content/content.js:29) — keep this trick.
 - [security] Autono permission matrix + sensitive-site tables at background.js:1913–1963 and lib/autono-security.js:283 — port verbatim (plan §4.4).
 
+### 2026-10-23 (M0-3 CLI spike session — Claude Code 2.1.309)
+- [cli] **`--verbose` is REQUIRED with `--output-format stream-json` in `-p` mode** — hard error "When using --print, --output-format=stream-json requires --verbose" (spikes/cli/flags.sh).
+- [cli] `--thinking` exists but takes `enabled|adaptive|disabled` — NOT a budget/effort suffix; effort is `--effort low|medium|high|xhigh|max`. `--effort` is LENIENT: invalid values warn+ignore (exit 0) → bridge must validate before spawn.
+- [cli] `--permission-prompt-tool` exists (hidden from `--help`) and takes an MCP tool name; rejected — see docs/decisions.md (guard-side approval is client-agnostic; with `--tools ""` there's nothing for the CLI to prompt for).
+- [cli] **PROD combo verified**: `--tools ""` + `--strict-mcp-config` + `--mcp-config <file>` + `--allowedTools "mcp__junior_browser:*"` → init event `"tools":[]` (zero built-ins, zero inherited servers). No `--disallowedTools` deny-list needed — it would rot as CLI adds built-ins.
+- [cli] Without `--strict-mcp-config`, spawned `claude` **inherits the cwd project's MCP servers** (.mcp.json/settings) and without `--model` it inherits settings.json's model — always pass both explicitly.
+- [cli] `--mcp-config` with unreachable HTTP server is **non-fatal**: run completes; init shows `"mcp_servers":[{"name":"junior_browser","status":"failed","source":"dynamic"}]` → CLI engine can surface MCP health from init.
+- [cli] Session continuity: `--session-id <uuid>` (turn 1) then `--resume <uuid>` (turn 2) round-trips context (verified BANANA42 recall) → bridge uses convId-as-UUID, no init-capture race. `--no-session-persistence` opt-out still works.
+- [cli] stream-json event map (with `--include-partial-messages`): `system/init` (cwd, session_id, tools[], mcp_servers[], model, permissionMode) → `stream_event` wrappers around raw Anthropic events (`message_start`, `content_block_start/delta` with `text_delta`, `content_block_stop`, `message_delta`, `message_stop`) → `assistant` (full blocks incl. `tool_use`) → `user` (tool_result) → `result` (`is_error`, `result` text, `usage`{input/output_tokens, cache_*}, `total_cost_usd`, `num_turns`, `duration_ms`) — usage.ts maps this 1:1.
+- [cli] Denied tools (e.g. `--disallowedTools Bash` + `--permission-prompts none`) still emit `tool_use` + `tool_result` events — denial surfaces to the UI through the normal tool-part mapping, no special event type.
+- [cli] `--input-format stream-json` accepts `{"type":"user","message":{"role":"user","content":"…"}}` lines on stdin (verified) — engine's realtime turn path.
+- [env] Nested `claude` spawn: unset `CLAUDECODE CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ID CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_MESSAGING_SOCKET CLAUDE_CODE_MESSAGING_TOKEN CLAUDE_PID CLAUDE_EFFORT CLAUDE_CODE_SESSION_ATTENDED` to avoid inheriting the parent session's wiring (flags.sh `spawn()`).
+- [env] `--effort`/flag probes with `--version` exit 0 before validation — commander-style short-circuit; probe flags with a real `-p` call, not `--version`.
+
 ### 2026-10-23 (M0-2 protocol session)
 - [zod] `zod@4.6.5` pinned exact in `@junior/protocol`; with package major 4, root `import { z } from "zod"` **is** the v4 API (no `zod/v4` subpath needed).
 - [zod] v4 `.default()` short-circuits parsing and requires the value to match the schema's **output** type: `ProvidersConfigSchema.default({})` fails to compile when a member field has its own default → `.default({ openaiCompatible: [] })`. Keys with `.default()` are optional in `z.input`, required in `z.output`/`z.infer`.
 - [docs] context7 accepts pinned versions as libraryId — `/colinhacks/zod/v4.6.5` returns version-exact docs.
 - [toolchain] `pnpm add` triggers root postinstall (`pnpm -r build`) **at install time** — dist is stale if you add deps before writing source; `pnpm -r build` in the green gate catches it, but don't trust a freshly-installed dist mid-session.
+- [toolchain] Green-gate lint is **`pnpm lint` (root `eslint .`)** — `pnpm -r lint` hard-fails while the extension stub has no scripts; switch to `-r` only when workspaces define their own lint scripts. (M0-3 session hit this; also `pnpm -r build` failed once with a transient recursive-exec error and passed on immediate rerun.)
 
 
 ## Session log
@@ -101,3 +116,4 @@
 - 2026-10-23 · planning · plan.md + CLAUDE.md + progress.md written from RE of Autono/ModelBridge · —
 - 2026-10-23 · M0-1 · monorepo scaffold green (typecheck/test/build/lint/format, protocol↔bridge import verified) · de84cf1
 - 2026-10-23 · M0-2 · all §3 schemas + config.ts frozen, 20 round-trip tests green, 2 forks → docs/decisions.md · 3cd22f4
+- 2026-10-23 · M0-3 · CLI flag matrix 10/10 vs CLI 2.1.309; --thinking/--permission-prompt-tool/--session-id surprises; plan §4.5 args rewritten; 3 forks → docs/decisions.md · c56ef25
