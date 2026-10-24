@@ -43,9 +43,11 @@ const uiMessage = { id: "m1", role: "user", parts: [{ type: "text", text: "hi" }
 /** Trimmed M0-4 spike mock: a real OpenAI-compatible /chat/completions SSE server on an
  * ephemeral port, so @ai-sdk/openai-compatible parses a genuine wire. Records bodies.
  * `failStatus` makes /chat/completions answer with that status instead (the fallback
- * chain's pre-token provider failure). */
+ * chain's pre-token provider failure). `toolCall` scripts the agent loop's first turn:
+ * when the outbound messages carry no tool result yet, the mock emits a tool_calls
+ * delta (M0-4 verified the wire shape); the follow-up turn gets plain text. */
 async function startMockOpenAI(
-  opts: { failStatus?: number; text?: string } = {},
+  opts: { failStatus?: number; text?: string; toolCall?: { name: string; args: unknown } } = {},
 ): Promise<{ baseUrl: string; bodies: unknown[] }> {
   const bodies: unknown[] = [];
   const server: Server = createServer((req, res) => {
@@ -69,9 +71,36 @@ async function startMockOpenAI(
         res.write(
           `data: ${JSON.stringify({ choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`,
         );
-      send({ role: "assistant", content: "" }, null);
-      send({ content: opts.text ?? "OPENROUTER_MOCK_OK" }, null);
-      send({}, "stop");
+      const hasToolResult = (
+        bodies.at(-1) as { messages?: Array<{ role?: string }> }
+      )?.messages?.some((m) => m.role === "tool");
+      if (!hasToolResult && opts.toolCall !== undefined) {
+        send(
+          {
+            role: "assistant",
+            tool_calls: [
+              {
+                index: 0,
+                id: "call_mock_1",
+                type: "function",
+                function: { name: opts.toolCall.name, arguments: "" },
+              },
+            ],
+          },
+          null,
+        );
+        send(
+          {
+            tool_calls: [{ index: 0, function: { arguments: JSON.stringify(opts.toolCall.args) } }],
+          },
+          null,
+        );
+        send({}, "tool_calls");
+      } else {
+        send({ role: "assistant", content: "" }, null);
+        send({ content: opts.text ?? "OPENROUTER_MOCK_OK" }, null);
+        send({}, "stop");
+      }
       res.write("data: [DONE]\n\n");
       res.end();
     })().catch(() => {
@@ -218,16 +247,16 @@ describe("POST /api/chat (engine api)", () => {
     expect(wireError(await res.json())).toMatch(/invalid messages/);
   });
 
-  it("501s the cli engine and agentMode until M4 wires them", async () => {
+  it("501s the cli engine until M4-4 wires it", async () => {
     const { app } = newApp();
-    for (const body of [
-      { engine: "cli", provider: "claude-cli", model: "claude-sonnet-5-5", messages: [uiMessage] },
-      { agentMode: true, model: "claude-sonnet-5-5", messages: [uiMessage] },
-    ]) {
-      const res = await postChat(app, body);
-      expect(res.status).toBe(501);
-      expect(wireError(await res.json())).toMatch(/M4/);
-    }
+    const res = await postChat(app, {
+      engine: "cli",
+      provider: "claude-cli",
+      model: "claude-sonnet-5-5",
+      messages: [uiMessage],
+    });
+    expect(res.status).toBe(501);
+    expect(wireError(await res.json())).toMatch(/M4-4/);
   });
 
   it("sits behind the bearer gate like every other data route", async () => {
@@ -326,5 +355,79 @@ describe("POST /api/chat fallback chain (M2-4, plan §4.5)", () => {
       messages: [uiMessage],
     });
     expect(res.status).toBe(502);
+  });
+});
+
+describe("POST /api/chat agentMode (M4-3, plan §4.5)", () => {
+  it("runs the tool loop: tool call → dispatcher (guard denial feeds back) → final text", async () => {
+    // No extension is connected here, so the navigate tool's dispatch hits the
+    // dispatcher guard (ask mode) → immediate no-panel deny — exactly the string
+    // that must reach the model so it stops retrying (§4.4).
+    const { baseUrl, bodies } = await startMockOpenAI({
+      toolCall: { name: "navigate", args: { url: "https://example.com/" } },
+      text: "AGENT_MOCK_DONE",
+    });
+    const { app } = newApp({
+      providers: {
+        openaiCompatible: [{ id: "openrouter", label: "OpenRouter", baseUrl, apiKey: "sk-test" }],
+      },
+    });
+    const res = await postChat(app, {
+      provider: "openrouter",
+      model: "vendor/model-name",
+      agentMode: true,
+      messages: [uiMessage],
+    });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain('"tool-input-available"');
+    expect(text).toContain('"tool-output-available"');
+    expect(text).toContain("AGENT_MOCK_DONE");
+    // Two model calls: the second carries the tool result with the verbatim guard string.
+    expect(bodies).toHaveLength(2);
+    const second = bodies[1] as { messages: Array<{ role: string; content: unknown }> };
+    const toolMsg = second.messages.find((m) => m.role === "tool");
+    expect(JSON.stringify(toolMsg)).toContain("no panel connected to approve");
+  });
+
+  it("config.maxSteps bounds the loop (isStepCount) — maxSteps:1 stops after one step", async () => {
+    const { baseUrl, bodies } = await startMockOpenAI({
+      toolCall: { name: "navigate", args: { url: "https://example.com/" } },
+    });
+    const { app } = newApp({
+      maxSteps: 1,
+      providers: {
+        openaiCompatible: [{ id: "openrouter", label: "OpenRouter", baseUrl, apiKey: "sk-test" }],
+      },
+    });
+    const res = await postChat(app, {
+      provider: "openrouter",
+      model: "vendor/model-name",
+      agentMode: true,
+      messages: [uiMessage],
+    });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain('"tool-output-available"'); // the one step's tool ran
+    expect(text).not.toContain("OPENROUTER_MOCK_OK"); // no second model call happened
+    expect(bodies).toHaveLength(1);
+  });
+
+  it("plain chat never sends tools on the provider wire", async () => {
+    const { baseUrl, bodies } = await startMockOpenAI();
+    const { app } = newApp({
+      providers: {
+        openaiCompatible: [{ id: "openrouter", label: "OpenRouter", baseUrl, apiKey: "sk-test" }],
+      },
+    });
+    const res = await postChat(app, {
+      provider: "openrouter",
+      model: "vendor/model-name",
+      messages: [uiMessage],
+    });
+    expect(res.status).toBe(200);
+    await res.text();
+    const outbound = bodies[0] as { tools?: unknown };
+    expect(outbound.tools).toBeUndefined();
   });
 });

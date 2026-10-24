@@ -47,17 +47,25 @@ export function resolveChatTarget(
   return { providerId: provider.id, model };
 }
 
-/** Transport per (bridgeUrl, token, target) — useChat re-creates its connection when the
- * memo key changes, so switching model mid-conversation just retargets the next send. */
+/** Transport per (bridgeUrl, token, target, agentMode) — useChat re-creates its
+ * connection when the memo key changes, so switching model or agent mode
+ * mid-conversation just retargets the next send (M4-3). */
 export function createChatTransport(
   bridgeUrl: string,
   token: string,
   target: ChatTarget,
+  agentMode = false,
 ): DefaultChatTransport<UIMessage> {
   return new DefaultChatTransport({
     api: `${bridgeUrl}/api/chat`,
     headers: { Authorization: `Bearer ${token}` },
     // Merged into DefaultChatTransport's body alongside `messages` (verified M0-4).
-    body: { engine: "api", provider: target.providerId, model: target.model },
+    // agentMode omitted when false — the protocol default covers it.
+    body: {
+      engine: "api",
+      provider: target.providerId,
+      model: target.model,
+      ...(agentMode ? { agentMode: true } : {}),
+    },
   });
 }

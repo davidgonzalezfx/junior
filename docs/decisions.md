@@ -290,3 +290,15 @@ the default `pnpm -r test` green gate free of model-token spend, same pattern as
 leg). Registration lessons (project-scope approval limbo, `--allowedTools` server-wide form) live in
 `progress.md → Learnings` and docs/terminal-claude.md.
 Affects: `tests/e2e/terminal-claude.smoke.test.ts`, `tests/e2e/harness.ts` (token exposed), plan §8 M4-2.
+
+## 2026-10-24 · Panel agent-mode trigger: toggle chip, not the §5.3 `/agent` slash command (M4-3)
+
+Context: plan §5.3 sketches the composer with `/` commands (`/agent`, `/chat`, `/pick`); M4-3 needs some
+panel affordance that sends `agentMode:true` (acceptance b). Options: (a) implement the `/agent `
+prefix command now (and leave `/chat`/`/pick` stubbed), (b) a persistent Agent toggle chip beside the
+model badge that applies to subsequent sends until switched off. Choice: **(b)** — a visible toggle
+communicates the current mode (slash commands are invisible once sent), it retargets the transport's
+memo key exactly like the M2-4 model switch (zero new transport machinery), and `/pick` is already
+superseded by the ⌘K palette while `/chat` is the default. The remaining `/` command surface is
+recorded as an M5/backlog candidate if real usage wants it; plan §5.3 composer line updated.
+Affects: `apps/extension/src/components/chat-panel.tsx`, `apps/extension/src/lib/chat.ts`, plan §5.3.

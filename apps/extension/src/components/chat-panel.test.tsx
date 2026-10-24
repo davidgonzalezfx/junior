@@ -232,4 +232,84 @@ describe("ChatPanel", () => {
       ]);
     });
   });
+
+  it("M4-3: the Agent toggle sends agentMode:true on the next send (and off removes it)", async () => {
+    await browser.storage.local.set({
+      junior_bridge_token: "t".repeat(64),
+      junior_default_provider: { providerId: "openrouter", model: "vendor/model-x" },
+    });
+    vi.stubGlobal("fetch", stubFetch());
+
+    render(<ChatPanel session={emptySession()} onRecord={vi.fn()} />);
+    const textarea = await screen.findByLabelText("message");
+    fireEvent.change(textarea, { target: { value: "plain question" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await waitFor(() => expect(chatRequests).toHaveLength(1));
+    expect(chatRequests[0]!.body.agentMode).toBeUndefined(); // plain chat: protocol default
+
+    // Toggle agent mode; the memo key changes → the next send carries agentMode.
+    fireEvent.click(screen.getByLabelText("Agent mode"));
+    expect(screen.getByLabelText("Agent mode").getAttribute("aria-pressed")).toBe("true");
+    fireEvent.change(textarea, { target: { value: "do a task" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await waitFor(() => expect(chatRequests).toHaveLength(2));
+    expect(chatRequests[1]!.body.agentMode).toBe(true);
+
+    // Toggling back removes the flag again.
+    fireEvent.click(screen.getByLabelText("Agent mode"));
+    fireEvent.change(textarea, { target: { value: "plain again" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await waitFor(() => expect(chatRequests).toHaveLength(3));
+    expect(chatRequests[2]!.body.agentMode).toBeUndefined();
+  });
+
+  it("M4-3: streamed tool parts render as progress lines with the result", async () => {
+    await browser.storage.local.set({
+      junior_bridge_token: "t".repeat(64),
+      junior_default_provider: { providerId: "openrouter", model: "vendor/model-x" },
+    });
+    const agentStream = [
+      `data: {"type":"start"}`,
+      `data: {"type":"start-step"}`,
+      `data: {"type":"tool-input-available","toolCallId":"call_1","toolName":"navigate","input":{"url":"https://example.com/"}}`,
+      `data: {"type":"tool-output-available","toolCallId":"call_1","output":"{\\"title\\":\\"Example\\"}"}`,
+      `data: {"type":"finish-step"}`,
+      `data: {"type":"start-step"}`,
+      `data: {"type":"text-start","id":"1"}`,
+      `data: {"type":"text-delta","id":"1","delta":"Opened it."}`,
+      `data: {"type":"text-end","id":"1"}`,
+      `data: {"type":"finish-step"}`,
+      `data: {"type":"finish"}`,
+      `data: [DONE]`,
+    ]
+      .map((line) => `${line}\n\n`)
+      .join("");
+    const stub = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const url = String(input);
+      if (url.endsWith("/api/status")) {
+        return new Response(JSON.stringify(STATUS), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.endsWith("/api/chat")) {
+        chatRequests.push({ url, auth: null, body: JSON.parse(String(init?.body)) });
+        return new Response(agentStream, { headers: { "content-type": "text/event-stream" } });
+      }
+      return new Response(JSON.stringify({ error: "unexpected" }), { status: 404 });
+    };
+    vi.stubGlobal("fetch", stub);
+
+    render(<ChatPanel session={emptySession()} onRecord={vi.fn()} />);
+    fireEvent.click(await screen.findByLabelText("Agent mode"));
+    const textarea = screen.getByLabelText("message");
+    fireEvent.change(textarea, { target: { value: "open example.com" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    // Static server tools render as tool-<name> parts — the line shows the name,
+    // the running → done transition, and the (truncated) output.
+    await waitFor(() => expect(screen.getByText("Opened it.")).toBeTruthy());
+    const line = screen.getByText(/navigate/).closest("p"); // detail is a sibling text node
+    expect(line?.textContent).toContain("navigate");
+    expect(line?.textContent).toContain("Example");
+  });
 });

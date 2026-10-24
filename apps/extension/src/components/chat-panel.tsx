@@ -1,7 +1,9 @@
 // ChatPanel — M2-4: plain chat over /api/chat (engine `api`) with markdown streaming
 // and the ⌘K provider/model palette (plan §5.3). M2-5: session persistence — the
 // active session (id + restored messages) comes from App, finished message lists
-// flow back through onRecord for the debounced history write. Tool cards land in M3.
+// flow back through onRecord for the debounced history write. M4-3: an Agent toggle
+// (agentMode:true → bridge registers its browser tools) + minimal dynamic-tool
+// progress lines; the full tool-call cards are M5 polish.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import type { UIMessage } from "ai";
@@ -99,12 +101,13 @@ function Chat({
   const [target, setTarget] = useState<ChatTarget>(setup.target);
   const [recent, setRecent] = useState<RecentModel[]>(setup.recent);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [agentMode, setAgentMode] = useState(false);
   const [draft, setDraft] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const transport = useMemo(
-    () => createChatTransport(setup.bridgeUrl, setup.token, target),
-    [setup, target],
+    () => createChatTransport(setup.bridgeUrl, setup.token, target, agentMode),
+    [setup, target, agentMode],
   );
   const { messages, sendMessage, status, error, stop } = useChat({
     id: session.id,
@@ -142,7 +145,7 @@ function Chat({
 
   return (
     <div className="flex flex-1 flex-col gap-2 overflow-hidden">
-      <div className="flex items-center">
+      <div className="flex items-center gap-2">
         {/* The model badge IS the palette trigger (plan §5.3) — ⌘K works anywhere too. */}
         <button
           type="button"
@@ -154,6 +157,22 @@ function Chat({
           <span className="text-muted-foreground">{target.providerId}</span>
           {" / "}
           <span className="font-medium">{target.model}</span>
+        </button>
+        {/* M4-3: agent mode sends agentMode:true — the bridge registers its browser
+         * tools and the model works toward the goal in the active tab. */}
+        <button
+          type="button"
+          aria-pressed={agentMode}
+          aria-label="Agent mode"
+          title="Agent mode — Junior may act in this tab (guarded by approval cards)"
+          onClick={() => setAgentMode((v) => !v)}
+          className={
+            agentMode
+              ? "rounded-md border border-primary bg-primary/10 px-2 py-1 text-xs font-medium text-primary"
+              : "rounded-md border border-input bg-background px-2 py-1 text-xs text-muted-foreground hover:bg-accent"
+          }
+        >
+          Agent
         </button>
       </div>
 
@@ -169,7 +188,7 @@ function Chat({
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         {messages.length === 0 ? (
           <p className="p-4 text-sm text-muted-foreground">
-            Say hello — replies stream in as markdown. (Agent mode and tool cards arrive in M3/M4.)
+            Ask anything, or toggle Agent and give Junior a goal in this tab.
           </p>
         ) : (
           messages.map((message) => (
@@ -181,9 +200,19 @@ function Chat({
                   : "my-2 mr-2 px-1 text-sm"
               }
             >
-              {message.parts.map((part, i) =>
-                part.type === "text" ? <MarkdownContent key={i} text={part.text} /> : null,
-              )}
+              {message.parts.map((part, i) => {
+                // Server-side tools arrive as tool parts (v7): streamText's static
+                // tools render as `tool-<name>` part types (dynamic:false on the
+                // wire), client-unknown ones as `dynamic-tool` with a toolName
+                // field. Minimal one-line progress render — full tool-call cards
+                // are M5 polish.
+                if (part.type === "dynamic-tool" || part.type.startsWith("tool-")) {
+                  const name =
+                    part.type === "dynamic-tool" ? part.toolName : part.type.slice("tool-".length);
+                  return <ToolLine key={i} toolName={name} part={part as DynamicToolPartView} />;
+                }
+                return part.type === "text" ? <MarkdownContent key={i} text={part.text} /> : null;
+              })}
             </div>
           ))
         )}
@@ -224,5 +253,36 @@ function Chat({
         )}
       </div>
     </div>
+  );
+}
+
+/** The slice of the v7 tool part the minimal render needs (both the `tool-<name>`
+ * static part and `dynamic-tool` share these fields — v7 docs: state
+ * input-streaming | input-available | output-available | output-error). */
+interface DynamicToolPartView {
+  state: "input-streaming" | "input-available" | "output-available" | "output-error";
+  input?: unknown;
+  output?: unknown;
+  errorText?: string;
+}
+
+function ToolLine({ toolName, part }: { toolName: string; part: DynamicToolPartView }) {
+  const label =
+    part.state === "output-error"
+      ? `${toolName} failed`
+      : part.state === "output-available"
+        ? toolName
+        : `${toolName}…`;
+  const detail =
+    part.state === "output-error"
+      ? part.errorText
+      : part.state === "output-available"
+        ? JSON.stringify(part.output)
+        : JSON.stringify(part.input);
+  return (
+    <p className="my-1 rounded-md bg-secondary/60 px-2 py-1 font-mono text-xs text-muted-foreground">
+      <span className="font-medium">⚙ {label}</span>
+      {detail ? ` ${detail.slice(0, 200)}${detail.length > 200 ? "…" : ""}` : ""}
+    </p>
   );
 }

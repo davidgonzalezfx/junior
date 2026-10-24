@@ -14,6 +14,7 @@ import type { z } from "zod";
 import {
   ActionResultSchema,
   BrowserActionSchema,
+  JuniorConfigSchema,
   type ApprovalRequest,
   type ActionResult,
   type PermissionMode,
@@ -21,7 +22,7 @@ import {
 import { createApp } from "../../apps/bridge/src/index.js";
 import { Dispatcher } from "../../apps/bridge/src/dispatcher/queue.js";
 import { SessionGuard } from "../../apps/bridge/src/dispatcher/guard.js";
-import { generateToken, writeToken } from "../../apps/bridge/src/config.js";
+import { generateToken, saveConfig, writeToken } from "../../apps/bridge/src/config.js";
 import {
   fetchNextAction,
   fetchStatus,
@@ -52,6 +53,10 @@ export interface HarnessOptions {
   pages: Record<string, FakePage>;
   /** Initial permission mode — mutate `harness.mode` mid-scenario. Default "auto". */
   mode?: PermissionMode;
+  /** /api/chat provider seam (M4-3): a scripted Anthropic-wire fetch so agent-mode
+   * tests run the REAL chat tool loop with no LLM. Also writes a dummy
+   * anthropicKey into the harness config so resolveModel accepts "anthropic". */
+  chatFetch?: typeof fetch;
 }
 
 export interface Harness {
@@ -106,6 +111,10 @@ export async function startHarness(opts: HarnessOptions): Promise<Harness> {
   const dir = mkdtempSync(join(tmpdir(), "junior-harness-"));
   const token = generateToken();
   writeToken(token, dir);
+  if (opts.chatFetch !== undefined) {
+    // resolveModel("anthropic") demands a key; the scripted chatFetch never sees it.
+    saveConfig(JuniorConfigSchema.parse({ providers: { anthropicKey: "harness-not-real" } }), dir);
+  }
 
   let bridgeUrl = ""; // assigned once the listener is up (guard/env close over it)
   const guard = new SessionGuard({
@@ -114,7 +123,7 @@ export async function startHarness(opts: HarnessOptions): Promise<Harness> {
     startUrls: [opts.tabUrl],
   });
   const dispatcher = new Dispatcher({ guard });
-  const app = createApp({ dir, dispatcher });
+  const app = createApp({ dir, dispatcher, chat: { fetch: opts.chatFetch } });
   const server = serve({ fetch: app.fetch, port: 0, hostname: "127.0.0.1" });
   await new Promise<void>((resolve, reject) => {
     server.once("listening", resolve);

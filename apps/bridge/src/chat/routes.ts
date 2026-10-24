@@ -1,6 +1,9 @@
 // @junior/bridge/chat/routes — POST /api/chat (plan §4.5 "Engine api", §3 HTTP table).
-// M2-3 scope: engine "api", plain chat (agentMode tools land with M4-3, the cli engine
-// with M4-4). Response is an AI SDK v7 UI message stream (SSE) straight from
+// M2-3 scope: engine "api", plain chat. M4-3: agentMode registers the §4.5 browser
+// tool set (chat/tools.ts) and runs streamText's multi-step loop bounded by
+// config.maxSteps — tool calls execute through the dispatcher (guard + approval
+// cards) and their results feed the next step. The cli engine lands with M4-4.
+// Response is an AI SDK v7 UI message stream (SSE) straight from
 // toUIMessageStream — the extension's useChat consumes it unchanged.
 // M2-4: provider fallback chain from config — a provider 4xx/5xx BEFORE the first token
 // retries the next candidate (chat/fallback.ts); after the first token the error surfaces.
@@ -8,26 +11,39 @@ import { Hono } from "hono";
 import {
   convertToModelMessages,
   createUIMessageStreamResponse,
+  isStepCount,
   streamText,
   toUIMessageStream,
+  type LanguageModel,
   type UIMessage,
 } from "ai";
 import { ChatRequestBodySchema } from "@junior/protocol";
 import type { Logger } from "../auth.js";
 import { loadConfig } from "../config.js";
+import type { Dispatcher } from "../dispatcher/queue.js";
 import { UnknownProviderError, resolveModel } from "./registry.js";
 import { AllProvidersFailedError, buildCandidateChain, firstSuccessfulStream } from "./fallback.js";
+import { browserTools } from "./tools.js";
 
 /** v7: `system` was renamed `instructions` (old name is a deprecated fallback). */
 const JUNIOR_SYSTEM =
   "You are Junior, a browser-side assistant. Answer directly in markdown. " +
   "You have no tools in plain chat mode.";
 
-export const ENGINE_NOT_WIRED =
-  "engine not available yet — the cli engine lands in M4 (plan §8 M4-4) and agentMode tools in M4-3";
+const JUNIOR_AGENT_SYSTEM =
+  "You are Junior, a browser-side assistant with controlled access to the user's " +
+  "Chrome through the provided tools. Work step by step toward the user's goal: " +
+  "get_active_tab / read_page (outline) to see the page, then click/type/navigate as " +
+  "needed; verify with read_page before acting on guesses. Finish with a short " +
+  "markdown summary of what you did. A denied action (USER_DENIED:, BLOCKED_BY_POLICY:) " +
+  "is final — never retry it; say so and continue or stop.";
+
+export const ENGINE_NOT_WIRED = 'engine "cli" is not available yet — it lands in M4-4 (plan §8)';
 
 export interface ChatDeps {
   dir: string;
+  /** Agent mode's tools dispatch through the same queue the extension polls. */
+  dispatcher: Dispatcher;
   log?: Logger;
   /** Test seam — handed to resolveModel so tests hit in-process mock wires. */
   fetch?: typeof fetch;
@@ -45,11 +61,15 @@ export function chatRoutes(deps: ChatDeps) {
         .join("; ");
       return c.json({ error: `invalid chat request — ${detail}` }, 400);
     }
-    if (body.data.engine === "cli" || body.data.agentMode) {
+    if (body.data.engine === "cli") {
       return c.json({ error: ENGINE_NOT_WIRED }, 501);
     }
 
     const config = loadConfig(deps.dir); // per request: Settings edits land without a restart
+    const agentMode = body.data.agentMode;
+    // §4.5: agentMode registers the browser tools and bounds the loop at config.maxSteps.
+    const tools = agentMode ? browserTools({ dispatcher: deps.dispatcher }) : undefined;
+    const stopWhen = agentMode ? isStepCount(config.maxSteps) : undefined;
     let primaryModel;
     try {
       primaryModel = resolveModel(body.data.provider, body.data.model, config, deps.fetch);
@@ -72,39 +92,43 @@ export function chatRoutes(deps: ChatDeps) {
     }
 
     const instructions = body.data.system
-      ? `${JUNIOR_SYSTEM}\n\n${body.data.system}`
-      : JUNIOR_SYSTEM;
+      ? `${agentMode ? JUNIOR_AGENT_SYSTEM : JUNIOR_SYSTEM}\n\n${body.data.system}`
+      : agentMode
+        ? JUNIOR_AGENT_SYSTEM
+        : JUNIOR_SYSTEM;
     const toErrorText = (error: unknown) =>
       error instanceof Error ? error.message : String(error);
 
     // The requested provider first, then configured chain entries (§4.5). A thunk that
     // throws (stale chain entry → UnknownProviderError) counts as a failed attempt.
+    // Every candidate runs the SAME agent options — a mid-chain fallback must not
+    // silently drop the tool loop.
     const candidates = buildCandidateChain(body.data.provider, config.providers.fallbackChain);
-    const primary = streamText({
-      model: primaryModel,
-      instructions,
-      messages,
-      maxRetries: 0, // the fallback chain owns retries — SDK backoff would mask pre-token 5xxes
-      onError: ({ error }) =>
-        log(`[chat] stream error (${body.data.provider}): ${toErrorText(error)}`),
-    });
+    const buildStream = (model: LanguageModel, providerId: string) =>
+      streamText({
+        model,
+        instructions,
+        messages,
+        ...(tools !== undefined ? { tools, stopWhen } : {}),
+        maxRetries: 0, // the fallback chain owns retries — SDK backoff would mask pre-token 5xxes
+        onError: ({ error }) => log(`[chat] stream error (${providerId}): ${toErrorText(error)}`),
+      });
 
     try {
       const stream = await firstSuccessfulStream([
-        () => toUIMessageStream({ stream: primary.stream, onError: toErrorText }),
+        () =>
+          toUIMessageStream({
+            stream: buildStream(primaryModel, body.data.provider).stream,
+            onError: toErrorText,
+          }),
         ...candidates
           .filter((id) => id !== body.data.provider)
           .map((providerId) => () => {
             const model = resolveModel(providerId, body.data.model, config, deps.fetch);
-            const result = streamText({
-              model,
-              instructions,
-              messages,
-              maxRetries: 0, // chain owns retries
-              onError: ({ error }) =>
-                log(`[chat] stream error (${providerId}): ${toErrorText(error)}`),
+            return toUIMessageStream({
+              stream: buildStream(model, providerId).stream,
+              onError: toErrorText,
             });
-            return toUIMessageStream({ stream: result.stream, onError: toErrorText });
           }),
       ]);
       return createUIMessageStreamResponse({ stream });

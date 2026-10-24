@@ -128,8 +128,9 @@ export function createApp(deps: BridgeDeps = { dir: juniorDir() }) {
   // M1-3: /api/status — bridge facts + provider availability + CLI detection.
   app.route("/api", statusRoutes({ dir: deps.dir, dispatcher, ...deps.status }));
 
-  // M2-3: /api/chat — engine "api" streaming (plan §4.5); cli engine + agentMode land M4.
-  app.route("/api", chatRoutes({ dir: deps.dir, log, fetch: deps.chat?.fetch }));
+  // M2-3: /api/chat — engine "api" streaming (plan §4.5); cli engine lands M4-4.
+  // M4-3: agentMode dispatches through the same dispatcher the extension polls.
+  app.route("/api", chatRoutes({ dir: deps.dir, dispatcher, log, fetch: deps.chat?.fetch }));
 
   // M2-4: Settings→Providers — masked GET, patch PUT, models test (plan §5.3).
   app.route("/api", providersRoutes({ dir: deps.dir, log, test: deps.providers?.test }));

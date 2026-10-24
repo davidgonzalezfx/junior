@@ -571,7 +571,7 @@ Responsibilities (stateless-friendly, all state in `chrome.storage.session`/`loc
   (collapsible, CLI engine), usage chips (tokens, model, provider).
 - **Message list**: `virtua` (virtualized) — Autono renders every message node and slows down past a few
   hundred messages.
-- **Composer**: textarea, `/` commands (`/agent`, `/chat`, `/pick`), Enter to send, Shift+Enter newline.
+- **Composer**: textarea, Enter to send, Shift+Enter newline. Agent mode is a persistent toggle chip beside the model badge (sends `agentMode:true` — decisions.md 2026-10-24 replaces the `/agent` slash-command sketch; `/pick` is superseded by the ⌘K palette).
 - **⌘K model picker** (`cmdk`): groups = providers from `/api/status`; rows show model + badges
   (vision/tools/reasoning/fast) + "recent" section (localStorage `junior_recent_models`); selection sets the
   per-conversation model badge; the badge itself is a button reopening the palette mid-conversation.
@@ -726,7 +726,7 @@ any file >400 lines is a smell to refactor).
   (`tests/e2e/terminal-claude.smoke.test.ts`, gated behind `JUNIOR_E2E_TERMINAL_CLAUDE=1`; acceptance (a)
   demonstrated on the harness bank fixture — server name `junior_browser` per the CLAUDE.md naming
   convention, decisions.md 2026-10-24).
-3. API engine agent mode: tools → dispatcher loop with `maxSteps`.
+3. API engine agent mode: tools → dispatcher loop with `maxSteps` — done in M4-3 (`chat/tools.ts` registers the §4.5 set over Dispatcher.dispatch; routes wire `stopWhen: isStepCount(config.maxSteps)`; panel Agent toggle + minimal tool-progress lines; acceptance (b) demonstrated in `tests/e2e/agent-mode.test.ts` with a scripted Anthropic-wire provider — real bridge + guard + AgentLoop + executors, zero cards in auto, USER_DENIED rides back in ask).
 4. CLI engine: spawn, mcp-config loopback, `--resume` session map, stream mapping (§4.5), native-tools
   toggle honored.
 - **Accept:** (a) terminal Claude performs a guarded click end-to-end with an approval card; (b) panel agent
