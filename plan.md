@@ -534,7 +534,8 @@ Responsibilities (stateless-friendly, all state in `chrome.storage.session`/`loc
    (exponential backoff 1s→30s on failure, jitter; pauses when `browserConnected` heartbeat not needed).
    Item routing:
    - `action` → guard-probe (see 5.3) → execute via executors → `action-result`.
-   - `approval` → forward to panel via Port (`approval_request`); if no panel open → auto-deny at timeout.
+   - `approval` → forward to panel via Port (`approval_request`); no panel connected ⇒ deny now,
+     a showing-but-unanswered card ⇒ deny at its 120 s window (decisions.md 2026-10-23).
 3. **Executors** (`lib/executors/`): port of Autono's page interaction, simplified:
    - Element resolution — keep Autono's 6-strategy resolver (`background.js:4222–4340`): index map →
      CSS → XPath → semantic attributes → label → visible text. This is good code; copy nearly verbatim

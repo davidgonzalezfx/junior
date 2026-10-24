@@ -181,3 +181,21 @@ the visible mouse cursor and A19 abort-sequence flag are not ported (cursor not 
 §5.2.6 puts pause in the SW). Navigate + scroll ride along in the runner for switch exhaustiveness —
 navigate re-validates via `validateAgentUrl` as defense-in-depth (full enforcement stays bridge-side, M1-4).
 Affects: `apps/extension/src/lib/executors/*`, plan §5.2 (no text change — deltas are within "simplified").
+
+## 2026-10-23 · Approval routing deltas — no-panel denies now; grants are session-scoped storage (M3-3)
+
+Context: plan §5.2 item 2 says "approval → forward to panel via Port (`approval_request`); if no panel
+open → auto-deny at timeout", and §5.3 specs a 120 s countdown ring. Autono (reference) denies at a
+5-minute background-only timer, keeps cards in a Map with no queueing, and does NOT deny when the panel
+disconnects. Choices: (a) no-panel waits out the 120 s; (b) no-panel denies immediately with the 120 s
+window as the backstop while a card is showing. Choice: **(b)** — the bridge dispatcher already denies
+immediately when nobody is connected (§4.3, M1-2), and an approval that can never be answered wastes the
+agent's whole action timeout; the plan's "at timeout" wording is honored for the case that matters (card
+showing, nobody answers). Panel cards coexist keyed by id (Autono parity), and the countdown ring is
+display only — the SW broker's timer is authoritative, so a closed panel still default-denies at 120 s.
+Site grants ("Allow … for this session") are stored in `chrome.storage.local` under
+`junior_site_grants` and cleared on `browser.runtime.onStartup` — session-scoped like the bridge's
+in-memory `grantedSites`, because fakeBrowser (wxt testing) has no `storage.session` to test against.
+The "site" button is hidden when the approval has no `siteDomain` (private-network asks can never mint
+a grant — Autono's `allowSite: false` rule, background.js:2041). Affects: plan §5.2 item 2 wording,
+`apps/extension/src/lib/{port-router,panel-approvals,site-grants,agent-loop}.ts`.
