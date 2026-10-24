@@ -1,0 +1,17 @@
+{
+  // Bundler resolution like the extension (we import its source, which uses
+  // extensionless relative imports); DOM lib for the jsdom-typed harness parts.
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["../apps/extension/src/*"]
+    }
+  },
+  "include": ["e2e/**/*.ts", "vitest.config.ts"]
+}

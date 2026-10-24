@@ -218,3 +218,25 @@ jsdom quirk folded into the module: `Event.isTrusted` is an own non-configurable
 overlay takes a gesture predicate (prod: `e.isTrusted`) that tests inject.
 Affects: plan §5.2 item 6 + §5 file tree, `apps/extension/src/entrypoints/overlay.ts`,
 `apps/extension/src/lib/work-overlay{,-content}.ts`.
+
+## 2026-10-24 · The M3-5 fake-model harness lands as a `tests/` vitest workspace package, not a standalone script (M3-5)
+
+Context: plan §8 M3-5 says "script that pushes raw queue items … and asserts results — no LLM needed",
+and plan §9 mentions Playwright+chromium for the panel e2e. Choice: **`tests/` becomes a pnpm workspace
+package (`@junior/tests-e2e`) whose vitest suite IS the harness** — `e2e/harness.ts` boots the REAL
+bridge (source, `createApp` + `Dispatcher` + `SessionGuard`) on an ephemeral loopback port and drives
+the REAL extension `AgentLoop` + `bridge-client` + executors with raw queue items, so "asserts results"
+is a first-class `expect` instead of an ad-hoc exit code, and `pnpm -r test` gates it. Reasons: (a) the
+previous milestones' live-wire acceptances used exactly this shape as throwaway harnesses — M3-5 makes
+the pattern permanent; (b) real-Chrome Playwright e2e is still plan §9's separate workstream and needs
+no LLM either — this harness deliberately stops at the seam Chrome would fill. The "browser" is
+`e2e/fake-tab.ts`: a jsdom document per origin with the window's globals blanket-stamped onto
+globalThis (Node's own globals snapshotted and preserved, DOM event classes force-stamped because
+Node's native `Event` is wire-incompatible with jsdom `dispatchEvent`) so the extension's self-contained
+in-page functions run against the active page exactly as `executeScript` would inject them.
+Cross-origin navigations swap JSDOM instances (jsdom pushState is same-origin only); same-origin ones
+pushState, which keeps the M3-2 `__junior_dom_map` URL-stamp invalidation honest. Sensitive-site flows
+use a real domain from the SENSITIVE_SITES table (`chase.com`) with `tests/fixtures/bank.html` as the
+page — no network is ever touched; the harness tab is the only "web". Card answers are scripted
+(`answerNext`; unscripted cards default to deny so tests fail loudly).
+Affects: plan §8 M3-5 wording, `tests/` (new workspace member), `pnpm-workspace.yaml`.

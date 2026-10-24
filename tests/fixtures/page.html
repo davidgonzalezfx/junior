@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Junior Fixture</title>
+  </head>
+  <body>
+    <h1>Junior fixture page</h1>
+    <p>
+      This page exercises Junior's browser executors: plain buttons, form fields, and secret inputs,
+      without touching the real web. (plan §9: fixture page for agent flows.)
+    </p>
+    <form id="signup-form" action="/signup" method="post">
+      <label for="username">Username</label>
+      <input id="username" name="username" type="text" placeholder="pick a handle" />
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" placeholder="secret" />
+    </form>
+    <button id="save-btn" type="button">Save changes</button>
+    <a id="docs-link" href="https://example.com/docs">Read the docs</a>
+    <div id="status" role="status">ready</div>
+    <main id="tall-main" style="height: 4000px">
+      <p>Scrollable region content near the bottom of the page.</p>
+    </main>
+  </body>
+</html>

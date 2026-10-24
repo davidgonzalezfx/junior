@@ -5,7 +5,7 @@
 
 **Updated:** 2026-10-23
 **Current milestone:** M2 — Extension shell + chat (5/5, complete)
-**Current task:** none claimed (**next up: M3-5** fake-model harness on `tests/fixtures/page.html`, per plan §8; M3 acceptance gate lives there)
+**Current task:** M3-5 fake-model harness on `tests/fixtures/page.html` (session 2026-10-24)
 **Current blockers:** none
 
 ---

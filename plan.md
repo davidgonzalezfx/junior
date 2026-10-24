@@ -715,7 +715,7 @@ any file >400 lines is a smell to refactor).
 3. Guard on the extension side (display) + approval cards + Port routing + 120 s deny.
 4. Work overlay (thin) + pause/resume.
 5. Fake-model harness: script that pushes raw queue items (navigate/click/type/read/screenshot) and asserts
-   results — no LLM needed.
+   results — no LLM needed. (Landed as the `tests/` vitest workspace package — decisions.md 2026-10-24.)
 - **Accept:** harness executes all actions on real pages incl. a sensitive-site card flow and a secret-field
   refusal.
 
