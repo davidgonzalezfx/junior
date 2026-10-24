@@ -123,13 +123,18 @@ export async function startHarness(opts: HarnessOptions): Promise<Harness> {
     startUrls: [opts.tabUrl],
   });
   const dispatcher = new Dispatcher({ guard });
-  const app = createApp({ dir, dispatcher, chat: { fetch: opts.chatFetch } });
+  // M4-4: the CLI engine's --mcp-config must point at THIS listener (port 0 binds
+  // ephemeral) — the holder is filled in once the port is known; chatRoutes reads
+  // it lazily per request.
+  const cliSeams: { loopbackUrl?: string } = {};
+  const app = createApp({ dir, dispatcher, chat: { fetch: opts.chatFetch, cli: cliSeams } });
   const server = serve({ fetch: app.fetch, port: 0, hostname: "127.0.0.1" });
   await new Promise<void>((resolve, reject) => {
     server.once("listening", resolve);
     server.once("error", reject);
   });
   bridgeUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  cliSeams.loopbackUrl = bridgeUrl;
 
   const env: ExecutorEnv = {
     async getActiveTab() {

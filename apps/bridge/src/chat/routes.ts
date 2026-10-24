@@ -1,15 +1,18 @@
-// @junior/bridge/chat/routes — POST /api/chat (plan §4.5 "Engine api", §3 HTTP table).
+// @junior/bridge/chat/routes — POST /api/chat (plan §4.5, §3 HTTP table).
 // M2-3 scope: engine "api", plain chat. M4-3: agentMode registers the §4.5 browser
 // tool set (chat/tools.ts) and runs streamText's multi-step loop bounded by
 // config.maxSteps — tool calls execute through the dispatcher (guard + approval
-// cards) and their results feed the next step. The cli engine lands with M4-4.
-// Response is an AI SDK v7 UI message stream (SSE) straight from
-// toUIMessageStream — the extension's useChat consumes it unchanged.
+// cards) and their results feed the next step. M4-4: engine "cli" spawns the claude
+// CLI (chat/engine-cli.ts) with --mcp-config looping back at this bridge's /mcp —
+// the CLI's tool calls traverse the same dispatcher + guard + cards.
+// Response is an AI SDK v7 UI message stream (SSE) either way — the extension's
+// useChat consumes it unchanged.
 // M2-4: provider fallback chain from config — a provider 4xx/5xx BEFORE the first token
 // retries the next candidate (chat/fallback.ts); after the first token the error surfaces.
 import { Hono } from "hono";
 import {
   convertToModelMessages,
+  createUIMessageStream,
   createUIMessageStreamResponse,
   isStepCount,
   streamText,
@@ -24,6 +27,7 @@ import type { Dispatcher } from "../dispatcher/queue.js";
 import { UnknownProviderError, resolveModel } from "./registry.js";
 import { AllProvidersFailedError, buildCandidateChain, firstSuccessfulStream } from "./fallback.js";
 import { browserTools } from "./tools.js";
+import { CliSessionMap, prepareCliTurn, runCliTurn, type SpawnFn } from "./engine-cli.js";
 
 /** v7: `system` was renamed `instructions` (old name is a deprecated fallback). */
 const JUNIOR_SYSTEM =
@@ -38,8 +42,6 @@ const JUNIOR_AGENT_SYSTEM =
   "markdown summary of what you did. A denied action (USER_DENIED:, BLOCKED_BY_POLICY:) " +
   "is final — never retry it; say so and continue or stop.";
 
-export const ENGINE_NOT_WIRED = 'engine "cli" is not available yet — it lands in M4-4 (plan §8)';
-
 export interface ChatDeps {
   dir: string;
   /** Agent mode's tools dispatch through the same queue the extension polls. */
@@ -47,22 +49,57 @@ export interface ChatDeps {
   log?: Logger;
   /** Test seam — handed to resolveModel so tests hit in-process mock wires. */
   fetch?: typeof fetch;
+  /** CLI engine (M4-4) seams — loopback URL override (harness binds port 0) and a
+   * spawnImpl for tests that must not spawn a real `claude`. */
+  cli?: { loopbackUrl?: string; spawnImpl?: SpawnFn };
 }
 
 export function chatRoutes(deps: ChatDeps) {
   const log: Logger = deps.log ?? ((line) => console.warn(line));
   const routes = new Hono();
+  const cliSessions = new CliSessionMap(); // one --resume map per app instance
+  const toErrorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
   routes.post("/chat", async (c) => {
-    const body = ChatRequestBodySchema.safeParse(await c.req.json().catch(() => null));
+    // Raw body kept for convId — DefaultChatTransport sends the useChat id beside the
+    // schema'd fields; z.object strips it, but it's the §4.5 session-map key.
+    const raw: unknown = await c.req.json().catch(() => null);
+    const body = ChatRequestBodySchema.safeParse(raw);
     if (!body.success) {
       const detail = body.error.issues
         .map((i) => `${i.path.join(".") || "<root>"}: ${i.message}`)
         .join("; ");
       return c.json({ error: `invalid chat request — ${detail}` }, 400);
     }
+
     if (body.data.engine === "cli") {
-      return c.json({ error: ENGINE_NOT_WIRED }, 501);
+      const wireId = (raw as { id?: unknown } | null)?.id;
+      const convId = typeof wireId === "string" && wireId ? wireId.slice(0, 200) : null;
+      const config = loadConfig(deps.dir);
+      const plan = prepareCliTurn(
+        {
+          dir: deps.dir,
+          config,
+          log,
+          loopbackUrl: deps.cli?.loopbackUrl,
+          spawnImpl: deps.cli?.spawnImpl,
+          sessions: cliSessions,
+        },
+        body.data,
+        convId,
+      );
+      if (!plan.ok) return c.json({ error: plan.error }, plan.status);
+      const stream = createUIMessageStream({
+        execute: async ({ writer }) => {
+          writer.write({ type: "start" });
+          writer.write({ type: "start-step" });
+          await runCliTurn(plan.options, (chunk) => writer.write(chunk));
+          writer.write({ type: "finish-step" });
+          writer.write({ type: "finish" });
+        },
+        onError: toErrorText,
+      });
+      return createUIMessageStreamResponse({ stream });
     }
 
     const config = loadConfig(deps.dir); // per request: Settings edits land without a restart
@@ -96,8 +133,6 @@ export function chatRoutes(deps: ChatDeps) {
       : agentMode
         ? JUNIOR_AGENT_SYSTEM
         : JUNIOR_SYSTEM;
-    const toErrorText = (error: unknown) =>
-      error instanceof Error ? error.message : String(error);
 
     // The requested provider first, then configured chain entries (§4.5). A thunk that
     // throws (stale chain entry → UnknownProviderError) counts as a failed attempt.

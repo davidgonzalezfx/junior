@@ -728,7 +728,13 @@ any file >400 lines is a smell to refactor).
   convention, decisions.md 2026-10-24).
 3. API engine agent mode: tools → dispatcher loop with `maxSteps` — done in M4-3 (`chat/tools.ts` registers the §4.5 set over Dispatcher.dispatch; routes wire `stopWhen: isStepCount(config.maxSteps)`; panel Agent toggle + minimal tool-progress lines; acceptance (b) demonstrated in `tests/e2e/agent-mode.test.ts` with a scripted Anthropic-wire provider — real bridge + guard + AgentLoop + executors, zero cards in auto, USER_DENIED rides back in ask).
 4. CLI engine: spawn, mcp-config loopback, `--resume` session map, stream mapping (§4.5), native-tools
-  toggle honored.
+  toggle honored — done in M4-4 (`chat/engine-cli.ts` spawns `claude -p` with a regenerated 0600 `mcp.json`
+  looping back at this bridge's /mcp; `CliSessionMap` prescribes the UUID — `--session-id` first turn,
+  `--resume` after, keyed by the transport's chat id; `chat/cli-mapper.ts` maps stream-json → UI-message
+  chunks with a per-message delta dedupe; native-tools toggle = body.cliTools AND config.allowCliNativeTools;
+  27 bridge tests over real spawned `node -e` fixtures; acceptance (c) demonstrated in the gated
+  `tests/e2e/cli-engine.smoke.test.ts` (`JUNIOR_E2E_CLI_ENGINE=1`) — the bridge's own engine drives the real
+  CLI through get_active_tab → read_page → guarded click with a real approval card on the bank fixture).
 - **Accept:** (a) terminal Claude performs a guarded click end-to-end with an approval card; (b) panel agent
   mode completes "search hn for junior and open first link" via API engine; (c) same via CLI engine with
   reasoning shown; (d) kill mid-task → overlay clears, futures resolve as denied.

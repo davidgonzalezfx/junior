@@ -247,16 +247,16 @@ describe("POST /api/chat (engine api)", () => {
     expect(wireError(await res.json())).toMatch(/invalid messages/);
   });
 
-  it("501s the cli engine until M4-4 wires it", async () => {
-    const { app } = newApp();
+  it("rejects a missing cliPath override before spawning (M4-4; the engine's own tests cover the happy paths)", async () => {
+    const { app } = newApp({ cliPath: "/no/such/claude" });
     const res = await postChat(app, {
       engine: "cli",
       provider: "claude-cli",
       model: "claude-sonnet-5-5",
       messages: [uiMessage],
     });
-    expect(res.status).toBe(501);
-    expect(wireError(await res.json())).toMatch(/M4-4/);
+    expect(res.status).toBe(503);
+    expect(wireError(await res.json())).toMatch(/\/no\/such\/claude/);
   });
 
   it("sits behind the bearer gate like every other data route", async () => {
