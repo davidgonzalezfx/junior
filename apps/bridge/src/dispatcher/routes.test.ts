@@ -186,3 +186,58 @@ describe("pollSeconds (?timeout clamping, §4.3 ≤ 20 s)", () => {
     expect(pollSeconds("-5")).toBe(1);
   });
 });
+
+describe("POST /api/agent/cancel (M4-5 kill path — plan §8 accept d)", () => {
+  const approvalRequest = ApprovalRequestSchema.parse({
+    reasonCodes: ["new_site"],
+    reasons: ["first visit to example.com"],
+    pageUrl: "https://example.com",
+  });
+  const approvingGuard: ActionGuard = {
+    check: () => ({ kind: "approval", approval: approvalRequest }),
+  };
+
+  it("requires the token like every other data route", async () => {
+    const { app } = newApp();
+    expect((await app.request("/api/agent/cancel", { method: "POST" })).status).toBe(401);
+  });
+
+  it("resolves an in-flight dispatch as denied and reports what it killed", async () => {
+    const { app, dispatcher } = newApp();
+    const pending = dispatcher.dispatch({ kind: "scroll", direction: "down", amount: 300 });
+    const res = await app.request("/api/agent/cancel", { method: "POST", headers: AUTH });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, actions: 1, approvals: 0 });
+    await expect(pending).resolves.toMatchObject({
+      status: "denied",
+      error: "cancelled by user",
+    });
+    expect(dispatcher.queueDepth).toBe(0);
+  });
+
+  it("resolves a pending approval card as deny (default-deny semantics)", async () => {
+    const { app, dispatcher } = newApp(new Dispatcher({ guard: approvingGuard }));
+    dispatcher.ping(); // panel "connected" so the card is raised, not instant-denied
+    const pending = dispatcher.dispatch({ kind: "navigate", url: "https://example.com" });
+    // app.request runs on microtasks — dispatch is suspended at its first await
+    // until the guard's verdict lands; wait for the card to actually be queued.
+    await vi.waitFor(() => expect(dispatcher.queueDepth).toBe(1));
+    const res = await app.request("/api/agent/cancel", { method: "POST", headers: AUTH });
+    expect(await res.json()).toMatchObject({ ok: true, actions: 0, approvals: 1 });
+    await expect(pending).resolves.toMatchObject({ status: "denied" });
+  });
+
+  it("a late action-result after cancel reports delivered:false", async () => {
+    const { app, dispatcher } = newApp();
+    const pending = dispatcher.dispatch({ kind: "scroll", direction: "down", amount: 300 });
+    await app.request("/api/agent/cancel", { method: "POST", headers: AUTH });
+    await expect(pending).resolves.toMatchObject({ status: "denied" });
+    // The extension may still post the real outcome — no future, no delivery.
+    const res = await app.request("/api/agent/action-result", {
+      method: "POST",
+      headers: AUTH,
+      body: JSON.stringify({ id: (await pending).id, status: "ok", result: {} }),
+    });
+    expect(await res.json()).toEqual({ delivered: false });
+  });
+});

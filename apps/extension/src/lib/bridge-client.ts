@@ -188,6 +188,15 @@ export async function postApprovalDecision(
   return wire.delivered === true;
 }
 
+/** POST /api/agent/cancel — M4-5 kill path: the bridge denies every in-flight
+ * future and empties the queue so no engine hangs on the 120 s timeout. */
+export async function postCancel(baseUrl: string, token: string): Promise<void> {
+  await bridgeFetch(baseUrl, "/api/agent/cancel", (raw) => raw as { ok: boolean }, {
+    method: "POST",
+    token,
+  });
+}
+
 /**
  * Exponential backoff for poll loops (plan §5.2: 1 s → 30 s, jitter). Attempt 0 = first
  * failure. Pure so tests can pin the sequence; jitter (≤ 250 ms) keeps extension

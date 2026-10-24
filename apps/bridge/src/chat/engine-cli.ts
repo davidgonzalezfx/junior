@@ -142,6 +142,8 @@ export interface CliTurnOptions {
   prompt: string;
   env?: NodeJS.ProcessEnv;
   cwd?: string;
+  /** M4-5: abort (panel Stop / client disconnect) kills the spawned CLI. */
+  signal?: AbortSignal;
   /** Test seam — defaults to node:child_process spawn. */
   spawnImpl?: SpawnFn;
   log?: Logger;
@@ -221,6 +223,15 @@ export async function runCliTurn(
   child.stdin?.on("error", () => {}); // EPIPE if the CLI exits before reading stdin
   child.stdin?.write(o.prompt);
   child.stdin?.end();
+
+  // Client aborted (or aborted before the spawn even ran): kill the child so a
+  // cancelled turn can't keep driving tools headless (M4-5). "close" then fires
+  // with the signal and the normal result handling reports it.
+  if (o.signal !== undefined) {
+    const kill = () => child.kill("SIGTERM");
+    if (o.signal.aborted) kill();
+    else o.signal.addEventListener("abort", kill, { once: true });
+  }
 
   const exit = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
     (resolve) => {

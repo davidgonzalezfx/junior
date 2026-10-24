@@ -76,6 +76,8 @@ export interface Harness {
   /** Script the NEXT card's answer. Unset answers default to deny, so a test
    * that forgets to script a card fails loudly instead of passing mysteriously. */
   answerNext(answer: ApprovalAnswer | ((approval: ApprovalRequest) => ApprovalAnswer)): void;
+  /** The REAL AgentLoop — M4-5 tests pause it to pin an item in the bridge queue. */
+  readonly loop: AgentLoop;
   /** Resolves once the loop's first long-poll has pinged the bridge. */
   waitConnected(timeoutMs?: number): Promise<void>;
   stop(): Promise<void>;
@@ -212,6 +214,7 @@ export async function startHarness(opts: HarnessOptions): Promise<Harness> {
     answerNext(answer) {
       answers.push(answer);
     },
+    loop,
     async waitConnected(timeoutMs = 5_000): Promise<void> {
       const deadline = Date.now() + timeoutMs;
       for (;;) {

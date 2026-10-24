@@ -233,3 +233,39 @@ describe("installWorkOverlay", () => {
     expect(document.querySelectorAll("#__junior_work_overlay").length).toBe(1);
   });
 });
+
+describe("createWorkOverlay — ✕ cancel (M4-5)", () => {
+  it("a TRUSTED ✕ click hides the overlay at once and tells the SW to cancel", () => {
+    const { overlay, send } = makeOverlay(trusted);
+    overlay.handleMessage({ type: "overlay_show" });
+    expect(overlay.visible).toBe(true);
+    overlay.parts!.closeBtn.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true }),
+    );
+    // Hidden FIRST (the Autono lockout escape), cancel message second.
+    expect(overlay.visible).toBe(false);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith({ type: "overlay_action", action: "cancel" });
+  });
+
+  it("an UNTRUSTED ✕ click is ignored — page scripts cannot cancel the agent", () => {
+    const { overlay, send } = makeOverlay(); // default predicate = real e.isTrusted
+    overlay.handleMessage({ type: "overlay_show" });
+    overlay.parts!.closeBtn.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true }),
+    );
+    expect(overlay.visible).toBe(true);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("the ✕ still works while paused (cancel beats pause)", () => {
+    const { overlay, send } = makeOverlay(trusted);
+    overlay.handleMessage({ type: "overlay_show" });
+    overlay.handleMessage({ type: "overlay_paused", paused: true });
+    overlay.parts!.closeBtn.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true }),
+    );
+    expect(overlay.visible).toBe(false);
+    expect(send).toHaveBeenCalledWith({ type: "overlay_action", action: "cancel" });
+  });
+});

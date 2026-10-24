@@ -4,9 +4,15 @@
 // top frame, 3-type allowlist) to every inbound content-script message before
 // acting on it. Pause itself is LOCAL (plan §5.2 item 6): the controller only
 // syncs visuals; AgentLoop.setPaused stops polling and denies held items.
+// M4-5: the ✕ "cancel" action routes to the background's cancelTask, and the
+// showing tab is recorded in storage so a SW killed mid-task can clear the
+// orphaned overlay on its next wake (the page-side overlay outlives the SW).
 import { browser } from "wxt/browser";
 import { contentMessageAllowed, type SenderLike } from "./port-router";
 import type { OverlayCommand } from "./work-overlay-content";
+
+/** storage.local key holding the tab currently showing the overlay. */
+const OVERLAY_TAB_KEY = "junior_overlay_tab";
 
 export interface OverlayEnv {
   injectOverlay(tabId: number): Promise<void>;
@@ -29,8 +35,8 @@ export const defaultOverlayEnv: OverlayEnv = {
 };
 
 export interface WorkOverlayOptions {
-  /** Validated overlay_action from the page's Pause/Resume button. */
-  onOverlayAction(action: "pause" | "resume"): void;
+  /** Validated overlay_action from the page's Pause/Resume/✕ buttons. */
+  onOverlayAction(action: "pause" | "resume" | "cancel"): void;
 }
 
 export class WorkOverlayController {
@@ -55,6 +61,7 @@ export class WorkOverlayController {
    * listener yet. Injection is best-effort: restricted pages just don't show it. */
   async show(tabId: number, title?: string): Promise<void> {
     this.tabId = tabId;
+    await this.recordTab(tabId);
     try {
       await this.env.sendToTab(tabId, { type: "overlay_show", title, paused: this.pausedState });
     } catch {
@@ -69,11 +76,39 @@ export class WorkOverlayController {
   async hide(): Promise<void> {
     const tabId = this.tabId;
     this.tabId = null;
+    await this.recordTab(null);
     if (tabId === null) return;
     try {
       await this.env.sendToTab(tabId, { type: "overlay_hide" });
     } catch {
       // Page navigated away and took the overlay with it.
+    }
+  }
+
+  /** M4-5: a SW killed mid-task leaves the page-side overlay orphaned (it
+   * outlives the SW until the page navigates). On every SW wake, hide whatever
+   * the dead SW last showed — a fresh SW has no active task, so this is always
+   * safe, and a task started later re-shows via show(). */
+  async recoverAfterRestart(): Promise<void> {
+    try {
+      const stored = await browser.storage.local.get(OVERLAY_TAB_KEY);
+      const tabId = stored[OVERLAY_TAB_KEY];
+      await browser.storage.local.remove(OVERLAY_TAB_KEY);
+      if (typeof tabId !== "number") return;
+      this.tabId = tabId;
+      await this.hide();
+    } catch {
+      // Storage unavailable (tests without fakeBrowser) — display-only, never
+      // control flow.
+    }
+  }
+
+  private async recordTab(tabId: number | null): Promise<void> {
+    try {
+      if (tabId === null) await browser.storage.local.remove(OVERLAY_TAB_KEY);
+      else await browser.storage.local.set({ [OVERLAY_TAB_KEY]: tabId });
+    } catch {
+      // Same display-only posture as recoverAfterRestart.
     }
   }
 
@@ -106,8 +141,8 @@ export class WorkOverlayController {
     }
     if (type === "overlay_action") {
       const action = (msg as { action?: unknown }).action;
-      if (action === "pause" || action === "resume") {
-        this.pausedState = action === "pause";
+      if (action === "pause" || action === "resume" || action === "cancel") {
+        if (action !== "cancel") this.pausedState = action === "pause";
         this.opts.onOverlayAction(action);
       }
     }

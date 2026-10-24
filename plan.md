@@ -286,6 +286,7 @@ export const PairingResultSchema = z.object({ ok: z.literal(true), alreadyPaired
 | `GET /api/agent/next-action?timeout=15` | token | extension long-poll → `QueueItemSchema \| {item: null}` |
 | `POST /api/agent/action-result` | token | `ActionResultSchema` |
 | `POST /api/agent/approval-response` | token | `ApprovalDecisionSchema` |
+| `POST /api/agent/cancel` | token | kill path (M4-5): `Dispatcher.dispose("cancelled by user")` — every in-flight future resolves denied, queue empties; `{ok, actions, approvals}` |
 | `GET /api/pairing` | none | `{tokenRequired: true, tokenSet: bool}` — extension onboarding |
 | `POST /api/pairing` | token | extension registers/confirms token (idempotent) |
 | `GET /api/config` | token | masked providers view (`ProvidersViewSchema` — never carries a raw key) |
@@ -558,8 +559,10 @@ Responsibilities (stateless-friendly, all state in `chrome.storage.session`/`loc
    are an allowlist of 3 (`pick_response`, `overlay_action`, `content_ready`), top-frame only — port of
    Autono `CONTENT_SCRIPT_TYPES` + `isExtPage` checks (`background.js:113, 5592–5610`).
 6. **Work overlay control**: on agent activity → inject the overlay (thin 2px border + "Junior is
-   working" pill + Pause/Resume) — the unlisted script `overlay.js` (M3-4: manifest-registered or
-   runtime-registered content scripts both violate §5.1's manifest hygiene, see decisions.md 2026-10-23).
+   working" pill + Pause/Resume + ✕ cancel — the unlisted script `overlay.js` (M3-4: manifest-registered
+   or runtime-registered content scripts both violate §5.1's manifest hygiene, see decisions.md
+   2026-10-23); the ✕ is the M4-5 kill path: hides at once and sends `overlay_action cancel`, the SW
+   denies every in-flight bridge future via POST /api/agent/cancel and closes pending cards).
    Pause = bridge `POST /api/agent/*`? No: pause is local — SW stops polling and replies `denied: paused`
    to items; resume re-enables. (Simpler than Autono's resolver dance.)
 
@@ -737,7 +740,13 @@ any file >400 lines is a smell to refactor).
   CLI through get_active_tab → read_page → guarded click with a real approval card on the bank fixture).
 - **Accept:** (a) terminal Claude performs a guarded click end-to-end with an approval card; (b) panel agent
   mode completes "search hn for junior and open first link" via API engine; (c) same via CLI engine with
-  reasoning shown; (d) kill mid-task → overlay clears, futures resolve as denied.
+  reasoning shown; (d) kill mid-task → overlay clears, futures resolve as denied — done in M4-5
+  (`POST /api/agent/cancel` → `Dispatcher.dispose` denies every in-flight future; overlay ✕ sends
+  `overlay_action cancel` → SW calls the route, closes pending cards, drops the overlay; a SW killed
+  mid-task re-hides its orphaned overlay on the next wake via a storage-recorded tab; a dead bridge clears
+  the overlay via the loop's onBridgeError; panel Stop / client disconnect aborts the api engine's tool
+  loop (streamText abortSignal) and SIGTERMs the spawned CLI; bin SIGINT/SIGTERM disposes with a flush
+  tick).
 
 ### M5 — Polish + hardening (2 days)
 1. Usage chips; tool-call cards; reasoning collapse; empty/error/loading states; bridge-offline banner.

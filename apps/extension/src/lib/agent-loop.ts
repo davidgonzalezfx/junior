@@ -25,6 +25,10 @@ export interface AgentLoopDeps {
   /** §5.2 item 6 pause (work overlay Pause button): while paused the loop stops
    * polling and any item already fetched is denied; resume re-enables. */
   onPausedChange?(paused: boolean): void;
+  /** M4-5: a poll failed (bridge unreachable/restarting). The background uses
+   * this to clear the work overlay — a dead bridge never sends "idle" again,
+   * and the overlay must not outlive the task that raised it. */
+  onBridgeError?(error: unknown): void;
   now?: () => number;
   /** Injectable sleep — defaults to a real timer. */
   delay?: (ms: number) => Promise<void>;
@@ -78,9 +82,10 @@ export class AgentLoop {
         this.failures = 0;
         if (this.paused) await this.denyAsPaused(item);
         else if (item) await this.handleItem(item);
-      } catch {
+      } catch (error) {
         // Unreachable / 401 / 5xx — back off and retry; the status bar tells the
         // user the bridge is down, the loop never crashes (plan §5.2 cadence).
+        this.deps.onBridgeError?.(error);
         await delay(nextDelayMs(this.failures++));
       }
     }

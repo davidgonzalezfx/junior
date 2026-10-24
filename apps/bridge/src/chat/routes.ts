@@ -93,7 +93,15 @@ export function chatRoutes(deps: ChatDeps) {
         execute: async ({ writer }) => {
           writer.write({ type: "start" });
           writer.write({ type: "start-step" });
-          await runCliTurn(plan.options, (chunk) => writer.write(chunk));
+          await runCliTurn(
+            {
+              ...plan.options,
+              // Panel Stop / client disconnect kills the spawned CLI (M4-5) —
+              // otherwise the turn keeps running tools headless.
+              signal: c.req.raw.signal,
+            },
+            (chunk) => writer.write(chunk),
+          );
           writer.write({ type: "finish-step" });
           writer.write({ type: "finish" });
         },
@@ -146,6 +154,11 @@ export function chatRoutes(deps: ChatDeps) {
         messages,
         ...(tools !== undefined ? { tools, stopWhen } : {}),
         maxRetries: 0, // the fallback chain owns retries — SDK backoff would mask pre-token 5xxes
+        // M4-5 kill path: the panel's Stop aborts the request → the multi-step
+        // tool loop stops issuing dispatcher calls instead of running headless.
+        abortSignal: c.req.raw.signal,
+        onAbort: ({ steps }) =>
+          log(`[chat] stream aborted by client after ${steps.length} step(s) (${providerId})`),
         onError: ({ error }) => log(`[chat] stream error (${providerId}): ${toErrorText(error)}`),
       });
 

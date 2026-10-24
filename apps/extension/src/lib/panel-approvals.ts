@@ -18,7 +18,10 @@ export interface ApprovalAsk {
 export class PanelApprovalBroker implements ApprovalAsk {
   private pending = new Map<
     string,
-    { resolve: (a: ApprovalAnswer) => void; timer: ReturnType<typeof setTimeout> }
+    {
+      finish: (answer: ApprovalAnswer, by: "decision" | "timeout") => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
   >();
   private seq = 0;
 
@@ -55,7 +58,7 @@ export class PanelApprovalBroker implements ApprovalAsk {
         resolve(answer);
       };
       const timer = setTimeout(() => finish("deny", "timeout"), deadline - this.now());
-      this.pending.set(id, { resolve: (a) => finish(a, "decision"), timer });
+      this.pending.set(id, { finish, timer });
       this.router.broadcast({ type: "approval_request", id, approval, remainingMs });
     });
   }
@@ -64,11 +67,18 @@ export class PanelApprovalBroker implements ApprovalAsk {
   handleResponse(msg: ApprovalResponseMessage): void {
     const entry = this.pending.get(msg.id);
     if (!entry) return;
-    entry.resolve(msg.decision);
+    entry.finish(msg.decision, "decision");
   }
 
   /** Test/teardown seam — deny everything pending without firing the timers. */
   denyAll(): void {
-    for (const [, entry] of this.pending) entry.resolve("deny");
+    for (const [, entry] of this.pending) entry.finish("deny", "decision");
+  }
+
+  /** M4-5 kill path (overlay ✕ / task cancel): resolve every pending card as
+   * "deny" AND close it panel-side with the same approval_resolved broadcast a
+   * timeout produces (by: "timeout" — policy default-deny, not a user decision). */
+  cancelAll(): void {
+    for (const [, entry] of this.pending) entry.finish("deny", "timeout");
   }
 }

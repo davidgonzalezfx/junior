@@ -506,3 +506,78 @@ describe("POST /api/chat engine=cli (M4-4)", () => {
     expect(seam.calls).toHaveLength(0);
   });
 });
+
+describe("runCliTurn abort (M4-5: panel Stop kills the spawned CLI)", () => {
+  it("SIGTERMs the child on abort and surfaces the kill as an error chunk", async () => {
+    const ac = new AbortController();
+    const chunks: Array<Record<string, unknown>> = [];
+    const { runCliTurn } = await import("./engine-cli.js");
+    // A child that never exits on its own and never reads stdin — the abort
+    // signal is the only way this turn ends.
+    const pending = runCliTurn(
+      {
+        exe: process.execPath,
+        args: ["-e", "setInterval(() => {}, 1000);"],
+        prompt: "x",
+        signal: ac.signal,
+        log: () => {},
+      },
+      (chunk) => chunks.push(chunk as Record<string, unknown>),
+    );
+    await new Promise((r) => setTimeout(r, 300)); // let the child actually start
+    ac.abort();
+    const outcome = await pending;
+    expect(outcome.signal).toBe("SIGTERM");
+    expect(outcome.result).toBeNull();
+    // Fatal path surfaces as an error part — never swallowed (plan §4.5).
+    expect(
+      chunks.some((c) => c.type === "error" && String(c.errorText).includes("signal SIGTERM")),
+    ).toBe(true);
+  });
+
+  it("kills immediately when the signal is already aborted", async () => {
+    const ac = new AbortController();
+    ac.abort();
+    const chunks: Array<Record<string, unknown>> = [];
+    const { runCliTurn } = await import("./engine-cli.js");
+    const outcome = await runCliTurn(
+      {
+        exe: process.execPath,
+        args: ["-e", "setInterval(() => {}, 1000);"],
+        prompt: "x",
+        signal: ac.signal,
+        log: () => {},
+      },
+      (chunk) => chunks.push(chunk as Record<string, unknown>),
+    );
+    expect(outcome.signal).toBe("SIGTERM");
+  });
+});
+
+describe("POST /api/chat abort (M4-5)", () => {
+  it("aborting the request kills the spawned CLI mid-turn — the stream ends with an error part", async () => {
+    // app.request passes RequestInit.signal straight into the Request — the same
+    // object the route forwards to runCliTurn as c.req.raw.signal.
+    const ac = new AbortController();
+    const app = newCliApp((_exe, _args, opts) =>
+      spawn(process.execPath, ["-e", "setInterval(() => {}, 1000);"], opts),
+    );
+    const res = await app.request("/api/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json", Authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({
+        engine: "cli",
+        provider: "claude-cli",
+        model: "m",
+        messages: [uiMessage],
+      }),
+      signal: ac.signal,
+    });
+    expect(res.status).toBe(200);
+    await new Promise((r) => setTimeout(r, 300)); // child is up and hanging
+    ac.abort(); // the panel's Stop — must not leave the turn running headless
+    const sse = await res.text(); // resolves only once the killed child ends the turn
+    expect(sse).toContain('"type":"error"');
+    expect(sse).toContain("signal SIGTERM");
+  });
+});

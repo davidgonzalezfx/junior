@@ -1,7 +1,9 @@
 // Work-overlay SW controller tests: injection/show/hide/pause relay over a stub
 // env, plus the firewall on inbound content-script messages (the REAL
-// contentMessageAllowed — top frame, 3-type allowlist).
-import { describe, expect, it, vi } from "vitest";
+// contentMessageAllowed — top frame, 3-type allowlist). M4-5: the ✕ cancel
+// action and SW-crash recovery (storage-recorded tab, hidden on the next wake).
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fakeBrowser } from "wxt/testing/fake-browser";
 import { WorkOverlayController, type OverlayEnv } from "./work-overlay";
 import type { OverlayCommand } from "./work-overlay-content";
 import type { SenderLike } from "./port-router";
@@ -15,7 +17,7 @@ function makeHarness() {
     injectOverlay: (tabId) => inject(tabId),
     sendToTab: (tabId, msg) => send(tabId, msg),
   };
-  const onOverlayAction = vi.fn<(action: "pause" | "resume") => void>();
+  const onOverlayAction = vi.fn<(action: "pause" | "resume" | "cancel") => void>();
   const controller = new WorkOverlayController(env, { onOverlayAction });
   return { controller, env, onOverlayAction };
 }
@@ -139,5 +141,47 @@ describe("WorkOverlayController — content_ready + firewall", () => {
     );
     expect(onOverlayAction).not.toHaveBeenCalled();
     expect(controller.paused).toBe(false);
+  });
+});
+
+describe("WorkOverlayController — ✕ cancel + SW-crash recovery (M4-5)", () => {
+  beforeEach(() => fakeBrowser.reset());
+
+  it("a validated cancel action reaches onOverlayAction without touching pause state", () => {
+    const { controller, onOverlayAction } = makeHarness();
+    controller.handleContentMessage({ type: "overlay_action", action: "cancel" }, contentSender(5));
+    expect(onOverlayAction).toHaveBeenCalledWith("cancel");
+    expect(controller.paused).toBe(false);
+  });
+
+  it("show records the tab in storage; hide clears the record", async () => {
+    const { controller } = makeHarness();
+    await controller.show(9);
+    await expect(fakeBrowser.storage.local.get("junior_overlay_tab")).resolves.toEqual({
+      junior_overlay_tab: 9,
+    });
+    await controller.hide();
+    await expect(fakeBrowser.storage.local.get("junior_overlay_tab")).resolves.toEqual({});
+  });
+
+  it("recoverAfterRestart hides the tab a dead SW left showing, then clears the record", async () => {
+    const dead = makeHarness(); // the SW that died mid-task
+    await dead.controller.show(9);
+    // ...SW dies; a fresh SW wakes with a NEW controller but the SAME storage.
+    const fresh = makeHarness();
+    await fresh.controller.recoverAfterRestart();
+    expect(fresh.env.send).toHaveBeenCalledWith(9, { type: "overlay_hide" });
+    expect(fresh.controller.showingTab).toBeNull();
+    // A second wake finds no record — no stray overlay_hide.
+    const next = makeHarness();
+    await next.controller.recoverAfterRestart();
+    expect(next.env.send).not.toHaveBeenCalled();
+  });
+
+  it("recoverAfterRestart with no record is a no-op", async () => {
+    const { env, controller } = makeHarness();
+    await controller.recoverAfterRestart();
+    expect(env.send).not.toHaveBeenCalled();
+    expect(controller.showingTab).toBeNull();
   });
 });

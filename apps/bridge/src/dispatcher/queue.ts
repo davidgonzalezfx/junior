@@ -204,15 +204,19 @@ export class Dispatcher {
     return this.queue.size;
   }
 
-  /** M4-5 crash/shutdown path — deny everything in flight, drop everything queued. */
-  dispose(reason: string): void {
+  /** M4-5 crash/shutdown/cancel path — deny everything in flight, drop everything
+   * queued. Returns what was killed so POST /api/agent/cancel can report it. */
+  dispose(reason: string): { actions: number; approvals: number } {
+    const actions = this.futures.size;
     for (const [id, fut] of this.futures) {
       fut.resolve({ id, status: "denied", error: reason });
     }
     this.futures.clear();
+    const approvals = this.approvals.size;
     for (const fut of this.approvals.values()) fut.resolve(null); // → timeout-style deny
     this.approvals.clear();
     this.queue.clear();
+    return { actions, approvals };
   }
 
   private requestApprovalItem(

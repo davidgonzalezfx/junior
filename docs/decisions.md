@@ -302,3 +302,24 @@ memo key exactly like the M2-4 model switch (zero new transport machinery), and 
 superseded by the ⌘K palette while `/chat` is the default. The remaining `/` command surface is
 recorded as an M5/backlog candidate if real usage wants it; plan §5.3 composer line updated.
 Affects: `apps/extension/src/components/chat-panel.tsx`, `apps/extension/src/lib/chat.ts`, plan §5.3.
+
+## 2026-10-24 · Cancel/kill semantics: one global cancel route, timeout-style approval denial (M4-5)
+
+Context: plan §8 accept (d) says "kill mid-task → overlay clears, futures resolve as denied" but names no
+wire surface, and the dispatcher's approvals future only resolves `null` (→ the timeout denial string
+"approval not answered within 120 s"), so a *cancelled* approval reports BLOCKED_BY_POLICY-timeout text
+rather than "cancelled by user". Forks considered: (a) per-conversation/per-engine cancel with scoped
+future disposal, (b) one global `POST /api/agent/cancel` → `Dispatcher.dispose` (kills ALL in-flight
+actions + approvals + queued items), with approvals resolving as the existing timeout-style deny.
+Choice: **(b)** — Junior is a single-user personal bridge; "the user pressed cancel" is inherently global
+(the overlay ✕, panel Stop and SIGTERM all mean the same thing), and `dispose()` has existed as the M1-2
+seam for exactly this. Per-scope cancel would need conversation tags threaded through queue items for no
+real user benefit. The approval-string mismatch is left as-is: the model-visible signal in every case is
+a final denial (the agent prompts already treat any deny as final), and threading a third denial flavor
+through ApprovalDecision buys nothing. Also: bin SIGINT/SIGTERM disposes then yields ~100 ms before
+`process.exit` so the resolved futures' HTTP responses flush (callers see "bridge shutting down" instead
+of a reset socket — verified live). Client disconnects (panel Stop) abort via streamText `abortSignal`
++ SIGTERM to the spawned CLI rather than dispose — an aborted chat turn must not nuke a concurrent
+terminal-Claude task sharing the dispatcher.
+Affects: `apps/bridge/src/dispatcher/{queue,routes}.ts`, `apps/bridge/src/bin.ts`,
+`apps/bridge/src/chat/{routes,engine-cli}.ts`, `apps/extension/src/entrypoints/background.ts`, plan §3 table / §5.2 item 6 / §8 M4.

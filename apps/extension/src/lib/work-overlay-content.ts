@@ -1,11 +1,14 @@
 // lib/work-overlay-content.ts — the in-page work overlay (plan §5.2 item 6):
 // a trimmed port of Autono content/content.js:17–276 (§6.1 copy list) — thin
 // 2px border + "Junior is working" pill with Pause/Resume, Autono's glows and
-// branding stripped, no Write button (instructions live in the panel) and no ✕
-// (task cancel is M4-5). Kept from Autono, per plan §5.2: the e.isTrusted
-// interception (physical user clicks are blocked while the agent works — the
-// executors' synthetic clicks pass through untouched) and the closed shadow
-// root (page scripts can't reach the banner controls).
+// branding stripped, no Write button (instructions live in the panel). M4-5
+// adds the ✕ back (Autono content.js:200–226): it hides the overlay at once
+// and sends cancel_task — the SW denies every in-flight bridge future via
+// POST /api/agent/cancel, so a stuck agent can always be stopped from the page.
+// Kept from Autono, per plan §5.2: the e.isTrusted interception (physical user
+// clicks are blocked while the agent works — the executors' synthetic clicks
+// pass through untouched) and the closed shadow root (page scripts can't reach
+// the banner controls).
 //
 // The overlay is injected on demand as the unlisted script `overlay.js`
 // (executeScript — M2-1 keeps the manifest free of static content_scripts), so
@@ -20,7 +23,7 @@ export type OverlayCommand =
 
 /** Overlay → SW messages (runtime.sendMessage; the port-router allowlist). */
 export type OverlayToSwMessage =
-  { type: "content_ready" } | { type: "overlay_action"; action: "pause" | "resume" };
+  { type: "content_ready" } | { type: "overlay_action"; action: "pause" | "resume" | "cancel" };
 
 const WORKING_TITLE = "Junior is working";
 const PAUSED_TITLE = "Paused: inspecting the page";
@@ -32,6 +35,7 @@ export interface OverlayParts {
   frame: HTMLDivElement;
   label: HTMLSpanElement;
   pauseBtn: HTMLButtonElement;
+  closeBtn: HTMLButtonElement;
 }
 
 export interface JuniorWorkOverlay {
@@ -54,6 +58,7 @@ export function createWorkOverlay(
   let frame: HTMLDivElement | null = null;
   let label: HTMLSpanElement | null = null;
   let pauseBtn: HTMLButtonElement | null = null;
+  let closeBtn: HTMLButtonElement | null = null;
   let paused = false;
   let title = WORKING_TITLE;
 
@@ -89,6 +94,16 @@ export function createWorkOverlay(
     paused = !paused;
     applyVisuals();
     send({ type: "overlay_action", action: paused ? "pause" : "resume" });
+  }
+
+  // Port of Autono's stopOverlayBtn (content.js:200–226): hide immediately so
+  // the user is never locked out, then tell the SW to cancel — the SW denies
+  // the bridge futures (POST /api/agent/cancel) and closes pending cards.
+  function cancelTask(e: Event): void {
+    if (!isUserGesture(e)) return;
+    e.stopPropagation();
+    hide();
+    send({ type: "overlay_action", action: "cancel" });
   }
 
   function show(opts: { title?: string; paused?: boolean }): void {
@@ -180,9 +195,36 @@ export function createWorkOverlay(
     });
     btn.addEventListener("click", togglePause);
 
+    // Emergency ✕ — cancel the task and dismiss the overlay (Autono
+    // content.js:200–226's lockout escape, red to read as destructive).
+    const close = document.createElement("button");
+    close.type = "button";
+    close.title = "Cancel agent task and dismiss overlay";
+    close.textContent = "✕";
+    Object.assign(close.style, {
+      background: "rgba(239, 68, 68, 0.18)",
+      border: "1px solid rgba(239, 68, 68, 0.45)",
+      color: "#f87171",
+      borderRadius: "50%",
+      width: "24px",
+      height: "24px",
+      fontSize: "12px",
+      fontWeight: "700",
+      cursor: "pointer",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      lineHeight: "1",
+      padding: "0",
+      transition: "all 0.15s ease",
+      marginLeft: "2px",
+    });
+    close.addEventListener("click", cancelTask);
+
     banner.appendChild(dot);
     banner.appendChild(labelEl);
     banner.appendChild(btn);
+    banner.appendChild(close);
 
     // Closed shadow root: page scripts cannot reach the banner controls (Autono
     // content.js:234).
@@ -204,6 +246,7 @@ export function createWorkOverlay(
     frame = frameEl;
     label = labelEl;
     pauseBtn = btn;
+    closeBtn = close;
     window.addEventListener("click", intercept, true);
     window.addEventListener("mousedown", intercept, true);
     applyVisuals();
@@ -218,6 +261,7 @@ export function createWorkOverlay(
     frame = null;
     label = null;
     pauseBtn = null;
+    closeBtn = null;
   }
 
   return {
@@ -243,8 +287,8 @@ export function createWorkOverlay(
       return paused;
     },
     get parts(): OverlayParts | null {
-      if (!host || !frame || !label || !pauseBtn) return null;
-      return { host, frame, label, pauseBtn };
+      if (!host || !frame || !label || !pauseBtn || !closeBtn) return null;
+      return { host, frame, label, pauseBtn, closeBtn };
     },
   };
 }

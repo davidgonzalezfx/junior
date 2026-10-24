@@ -280,3 +280,53 @@ describe("AgentLoop — pause (§5.2 item 6)", () => {
     h.loop.stop();
   });
 });
+
+describe("AgentLoop — bridge loss (M4-5)", () => {
+  it("a failed poll fires onBridgeError with the error and backs off before repolling", async () => {
+    const onBridgeError = vi.fn();
+    let calls = 0;
+    const poll = vi.fn(() => {
+      calls += 1;
+      if (calls === 1) return Promise.reject(new Error("bridge down"));
+      return new Promise<null>(() => {}); // then block like a real long-poll
+    });
+    const delay = vi.fn(() => new Promise<void>(() => {})); // park: a real backoff sleep holds the loop here
+    const loop = new AgentLoop({
+      poll,
+      postResult: async () => {},
+      postDecision: async () => {},
+      execute: async () => ({ status: "ok", result: "" }),
+      ask: { request: async () => "deny", hasListener: () => true },
+      onBridgeError,
+      delay,
+    });
+    loop.start();
+    await vi.waitFor(() => expect(onBridgeError).toHaveBeenCalledTimes(1));
+    expect(onBridgeError.mock.calls[0]![0]).toBeInstanceOf(Error);
+    expect(delay).toHaveBeenCalledTimes(1); // backed off…
+    expect(poll).toHaveBeenCalledTimes(1); // …and not repolled (delay is injected)
+    loop.stop();
+  });
+
+  it("a healthy poll never fires onBridgeError", async () => {
+    const onBridgeError = vi.fn();
+    const h = makeHarness([actionItem()]);
+    // rebuild the loop with the hook — makeHarness owns its deps, so drive a
+    // second loop over the same fixtures shape with a rejecting-never poll.
+    const loop = new AgentLoop({
+      poll: () => new Promise<null>(() => {}), // idle forever, no failures
+      postResult: async () => {},
+      postDecision: async () => {},
+      execute: async () => ({ status: "ok", result: "" }),
+      ask: { request: async () => "deny", hasListener: () => true },
+      onBridgeError,
+      delay: async () => {},
+    });
+    void h;
+    loop.start();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(onBridgeError).not.toHaveBeenCalled();
+    loop.stop();
+    h.loop.stop();
+  });
+});
