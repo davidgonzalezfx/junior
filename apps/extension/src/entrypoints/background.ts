@@ -5,6 +5,7 @@ import { executeAction, defaultEnv } from "@/lib/executors";
 import { AgentLoop, mirrorAsk } from "@/lib/agent-loop";
 import { PortRouter } from "@/lib/port-router";
 import { PanelApprovalBroker } from "@/lib/panel-approvals";
+import { WorkOverlayController, defaultOverlayEnv } from "@/lib/work-overlay";
 import { fetchNextAction, postActionResult, postApprovalDecision } from "@/lib/bridge-client";
 import { addSiteGrant, clearSiteGrants, getSiteGrants, grantCovers } from "@/lib/site-grants";
 import { ensureToken, pairWithBridge } from "@/lib/pairing";
@@ -72,6 +73,22 @@ export default defineBackground(() => {
     return fn(bridgeUrl, token);
   };
 
+  // §5.2 item 6: on agent activity the working tab gets the overlay; idle hides
+  // it. The overlay's Pause button comes back through onOverlayAction → the
+  // loop's local pause; the loop's onPausedChange re-syncs the overlay + panel.
+  const syncOverlay = async (state: "idle" | "working" | "awaiting_approval") => {
+    if (state === "idle") {
+      await overlay.hide();
+      return;
+    }
+    const tab = await defaultEnv.getActiveTab();
+    if (tab?.id !== undefined) await overlay.show(tab.id);
+  };
+
+  const overlay = new WorkOverlayController(defaultOverlayEnv, {
+    onOverlayAction: (action) => loop.setPaused(action === "pause"),
+  });
+
   const loop = new AgentLoop({
     poll: (timeoutMs) => bridgeCall((url, token) => fetchNextAction(url, token, timeoutMs)),
     postResult: (result) => bridgeCall((url, token) => postActionResult(url, token, result)),
@@ -86,7 +103,20 @@ export default defineBackground(() => {
         granted: async (pageUrl) => grantCovers(await getSiteGrants(), pageUrl),
       }),
     ask: broker,
-    onStatus: (state, detail) => router.broadcast({ type: "task_status", state, detail }),
+    onStatus: (state, detail) => {
+      router.broadcast({ type: "task_status", state, detail });
+      void syncOverlay(state).catch(() => null);
+    },
+    onPausedChange: (paused) => {
+      router.broadcast({ type: "task_status", state: paused ? "paused" : "idle" });
+      void overlay.setPaused(paused).catch(() => null);
+    },
   });
   loop.start();
+
+  // Content-script one-shot messages (overlay_action / content_ready) — the
+  // controller applies the port-router firewall before acting.
+  browser.runtime.onMessage.addListener((msg: unknown, sender) => {
+    overlay.handleContentMessage(msg, sender);
+  });
 });

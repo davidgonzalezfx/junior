@@ -12,6 +12,7 @@ import { Onboarding } from "@/components/onboarding";
 import { ProvidersSettings } from "@/components/settings/providers-settings";
 import { SecuritySettings } from "@/components/settings/security-settings";
 import { useApprovalCards } from "@/hooks/use-approval-cards";
+import { WorkOverlayStatus } from "@/components/work-overlay-status";
 import {
   SessionStore,
   attachWriteOnHide,
@@ -136,23 +137,26 @@ export default function App() {
         />
       ) : session !== null ? (
         <div className="flex flex-1 flex-col gap-3 p-4">
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              aria-label="Open History"
-              className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-              onClick={() => setView("history")}
-            >
-              History
-            </button>
-            <button
-              type="button"
-              aria-label="Open Settings"
-              className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-              onClick={() => setView("providers")}
-            >
-              Settings
-            </button>
+          <div className="flex items-center justify-between">
+            <WorkOverlayStatus status={agentChannel.status} />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                aria-label="Open History"
+                className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                onClick={() => setView("history")}
+              >
+                History
+              </button>
+              <button
+                type="button"
+                aria-label="Open Settings"
+                className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                onClick={() => setView("providers")}
+              >
+                Settings
+              </button>
+            </div>
           </div>
           <ChatPanel session={session} onRecord={handleRecord} />
         </div>

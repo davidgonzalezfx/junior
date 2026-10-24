@@ -199,3 +199,22 @@ in-memory `grantedSites`, because fakeBrowser (wxt testing) has no `storage.sess
 The "site" button is hidden when the approval has no `siteDomain` (private-network asks can never mint
 a grant — Autono's `allowSite: false` rule, background.js:2041). Affects: plan §5.2 item 2 wording,
 `apps/extension/src/lib/{port-router,panel-approvals,site-grants,agent-loop}.ts`.
+
+## 2026-10-23 · Work overlay ships as an on-demand unlisted script, not a content-script entrypoint (M3-4)
+
+Context: plan §5.2 item 6 says "inject `content.ts` overlay" and the §5 file tree lists an
+`entrypoints/content.ts`. WXT offers two content-script registration modes: `registration:"manifest"`
+puts a static `content_scripts` entry in the manifest — M2-1 explicitly built the manifest with none
+(§5.1 hygiene) — and `registration:"runtime"` registers via `scripting.registerContentScripts` but
+**adds the entrypoint's `matches` to `host_permissions`** (verified against current WXT docs), i.e.
+`*://*/*`, gutting the bridge-only host_permissions posture. Choice: **`defineUnlistedScript`
+(`entrypoints/overlay.ts` → built `overlay.js`), injected on demand with
+`scripting.executeScript({files:["overlay.js"]})`** — the same mechanics buildDomTree already uses, no
+manifest surface, and the SW controls exactly when/where the overlay exists. The script is idempotent
+(window flag) so repeated injections are no-ops, and it announces `content_ready` so the SW can
+re-apply state after a navigation. Autono's ✕-cancel button is trimmed (Junior has no cancel_task
+until M4-5 kill/crash; noted as a backlog seed); Write button trimmed (instructions live in the panel).
+jsdom quirk folded into the module: `Event.isTrusted` is an own non-configurable getter there, so the
+overlay takes a gesture predicate (prod: `e.isTrusted`) that tests inject.
+Affects: plan §5.2 item 6 + §5 file tree, `apps/extension/src/entrypoints/overlay.ts`,
+`apps/extension/src/lib/work-overlay{,-content}.ts`.

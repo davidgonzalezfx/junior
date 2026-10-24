@@ -184,3 +184,99 @@ describe("AgentLoop", () => {
     expect(APPROVAL_WINDOW_MS).toBe(120_000);
   });
 });
+
+describe("AgentLoop — pause (§5.2 item 6)", () => {
+  /** Harness whose polls never resolve on their own — the test releases them. */
+  function makePausedHarness() {
+    let pending: ((item: QueueItem | null) => void) | undefined;
+    const polls = vi.fn(
+      () =>
+        new Promise<QueueItem | null>((resolve) => {
+          pending = resolve;
+        }),
+    );
+    /** Release the in-flight poll (throws if none is pending). */
+    const resolvePoll = (item: QueueItem | null) => {
+      if (!pending) throw new Error("no poll in flight");
+      pending(item);
+    };
+    const resultsMock = vi.fn(async () => {});
+    const decisionsMock = vi.fn(async () => {});
+    const executeMock = vi.fn(async (): Promise<ExecuteOutcome> => ({ status: "ok" }));
+    const onPausedChange = vi.fn();
+    const deps: AgentLoopDeps = {
+      poll: polls,
+      postResult: resultsMock,
+      postDecision: decisionsMock,
+      execute: executeMock,
+      ask: { request: vi.fn(async () => "once" as const), hasListener: () => true },
+      onStatus: vi.fn(),
+      onPausedChange,
+    };
+    const loop = new AgentLoop(deps);
+    loop.start();
+    return { loop, polls, resolvePoll, resultsMock, decisionsMock, executeMock, onPausedChange };
+  }
+
+  it("setPaused fires onPausedChange and stops polling; resume restarts it", async () => {
+    const h = makePausedHarness();
+    await vi.waitFor(() => expect(h.polls).toHaveBeenCalledTimes(1));
+
+    h.loop.setPaused(true);
+    expect(h.onPausedChange).toHaveBeenCalledWith(true);
+    expect(h.loop.isPaused).toBe(true);
+
+    // The in-flight poll resolving while paused must NOT start another round.
+    h.resolvePoll(null);
+    await new Promise<void>((r) => setTimeout(r, 0));
+    expect(h.polls).toHaveBeenCalledTimes(1);
+
+    h.loop.setPaused(false);
+    expect(h.onPausedChange).toHaveBeenLastCalledWith(false);
+    await vi.waitFor(() => expect(h.polls).toHaveBeenCalledTimes(2));
+    h.loop.stop();
+  });
+
+  it("an action fetched while paused is answered denied: paused, never executed", async () => {
+    const h = makePausedHarness();
+    await vi.waitFor(() => expect(h.polls).toHaveBeenCalledTimes(1));
+    h.loop.setPaused(true);
+    h.resolvePoll(actionItem({ id: "held" }));
+    await vi.waitFor(() =>
+      expect(h.resultsMock).toHaveBeenCalledWith({ id: "held", status: "denied", error: "paused" }),
+    );
+    expect(h.executeMock).not.toHaveBeenCalled();
+    h.loop.stop();
+  });
+
+  it("an approval fetched while paused resolves deny without showing a card", async () => {
+    const h = makePausedHarness();
+    await vi.waitFor(() => expect(h.polls).toHaveBeenCalledTimes(1));
+    h.loop.setPaused(true);
+    h.resolvePoll(approvalItem({ id: "held-card" }));
+    await vi.waitFor(() =>
+      expect(h.decisionsMock).toHaveBeenCalledWith({ id: "held-card", decision: "deny" }),
+    );
+    h.loop.stop();
+  });
+
+  it("stop() while paused parks-out cleanly and resume after stop does nothing", async () => {
+    const h = makePausedHarness();
+    await vi.waitFor(() => expect(h.polls).toHaveBeenCalledTimes(1));
+    h.loop.setPaused(true);
+    h.resolvePoll(null); // wakes the run loop into the parked wait
+    await new Promise<void>((r) => setTimeout(r, 0));
+    h.loop.stop(); // must wake the parked loop and exit
+    h.loop.setPaused(false); // a resume after stop must not restart polling
+    await new Promise<void>((r) => setTimeout(r, 0));
+    expect(h.polls).toHaveBeenCalledTimes(1);
+  });
+
+  it("setPaused is idempotent — no duplicate onPausedChange", () => {
+    const h = makePausedHarness();
+    h.loop.setPaused(true);
+    h.loop.setPaused(true);
+    expect(h.onPausedChange).toHaveBeenCalledTimes(1);
+    h.loop.stop();
+  });
+});

@@ -22,6 +22,9 @@ export interface AgentLoopDeps {
   /** Raises a card in the panel; resolves with the user's answer or "deny". */
   ask: ApprovalAsk;
   onStatus?(state: "idle" | "working" | "awaiting_approval", detail?: string): void;
+  /** §5.2 item 6 pause (work overlay Pause button): while paused the loop stops
+   * polling and any item already fetched is denied; resume re-enables. */
+  onPausedChange?(paused: boolean): void;
   now?: () => number;
   /** Injectable sleep — defaults to a real timer. */
   delay?: (ms: number) => Promise<void>;
@@ -29,7 +32,10 @@ export interface AgentLoopDeps {
 
 export class AgentLoop {
   private running = false;
+  private paused = false;
   private failures = 0;
+  /** Resolves waitWhilePaused — set while the loop parks during a pause. */
+  private waiter: (() => void) | null = null;
 
   constructor(private readonly deps: AgentLoopDeps) {}
 
@@ -41,24 +47,74 @@ export class AgentLoop {
 
   stop(): void {
     this.running = false;
+    this.wake(); // a parked (paused) loop must notice the stop
   }
 
   get active(): boolean {
     return this.running;
   }
 
+  get isPaused(): boolean {
+    return this.paused;
+  }
+
+  setPaused(paused: boolean): void {
+    if (this.paused === paused) return;
+    this.paused = paused;
+    this.deps.onPausedChange?.(paused);
+    this.wake();
+  }
+
   private async run(): Promise<void> {
     const delay = this.deps.delay ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
     while (this.running) {
+      if (this.paused) {
+        // Local pause (§5.2 item 6): no polls, so the bridge sees us idle.
+        await this.waitWhilePaused();
+        continue;
+      }
       try {
         const item = await this.deps.poll(POLL_TIMEOUT_MS);
         this.failures = 0;
-        if (item) await this.handleItem(item);
+        if (this.paused) await this.denyAsPaused(item);
+        else if (item) await this.handleItem(item);
       } catch {
         // Unreachable / 401 / 5xx — back off and retry; the status bar tells the
         // user the bridge is down, the loop never crashes (plan §5.2 cadence).
         await delay(nextDelayMs(this.failures++));
       }
+    }
+  }
+
+  private waitWhilePaused(): Promise<void> {
+    if (!this.paused || !this.running) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      this.waiter = resolve;
+    });
+  }
+
+  private wake(): void {
+    const w = this.waiter;
+    this.waiter = null;
+    w?.();
+  }
+
+  /** §5.2 item 6: items already fetched when the pause lands are answered
+   * "denied: paused" (approvals resolve deny — ApprovalDecision has no pause). */
+  private async denyAsPaused(item: QueueItem | null): Promise<void> {
+    if (item === null) return;
+    if (item.kind === "approval") {
+      try {
+        await this.deps.postDecision({ id: item.id, decision: "deny" });
+      } catch {
+        // Bridge went away; its future times out.
+      }
+      return;
+    }
+    try {
+      await this.deps.postResult({ id: item.id, status: "denied", error: "paused" });
+    } catch {
+      // Bridge went away; its future times out.
     }
   }
 

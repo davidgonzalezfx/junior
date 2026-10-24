@@ -155,8 +155,7 @@ junior/
 │        │  │  │  └─ history/
 │        │  │  ├─ hooks/          ← useBridgeStatus, useApprovals (Port), useSessions
 │        │  │  └─ lib/            ← ai-sdk transport to bridge, storage wrapper
-│        │  ├─ content.ts         ← overlay + pause banner + picker (port of content/content.js, trimmed)
-│        │  └─ content.dom.ts     ← buildDomTree loader + element resolvers (see §6.1)
+│        │  ├─ overlay.ts          ← work overlay unlisted script, injected on demand (M3-4)
 │        └─ lib/
 │           ├─ bridge-client.ts   ← fetch wrappers, token handling, backoff poller
 │           ├─ guard.ts           ← mirrors packages/protocol decision matrix client-side
@@ -558,9 +557,11 @@ Responsibilities (stateless-friendly, all state in `chrome.storage.session`/`loc
    Message firewall: only our own extension pages may use privileged types; content script sendable types
    are an allowlist of 3 (`pick_response`, `overlay_action`, `content_ready`), top-frame only — port of
    Autono `CONTENT_SCRIPT_TYPES` + `isExtPage` checks (`background.js:113, 5592–5610`).
-6. **Work overlay control**: on agent activity → inject `content.ts` overlay (thin 2px border + "Junior is
-   working" pill + Pause/Resume). Pause = bridge `POST /api/agent/*`? No: pause is local — SW stops polling
-   and replies `denied: paused` to items; resume re-enables. (Simpler than Autono's resolver dance.)
+6. **Work overlay control**: on agent activity → inject the overlay (thin 2px border + "Junior is
+   working" pill + Pause/Resume) — the unlisted script `overlay.js` (M3-4: manifest-registered or
+   runtime-registered content scripts both violate §5.1's manifest hygiene, see decisions.md 2026-10-23).
+   Pause = bridge `POST /api/agent/*`? No: pause is local — SW stops polling and replies `denied: paused`
+   to items; resume re-enables. (Simpler than Autono's resolver dance.)
 
 ### 5.3 Side panel (React)
 

@@ -37,10 +37,11 @@ export interface ApprovalResolvedMessage {
   by: "decision" | "timeout" | "no-panel";
 }
 
-/** SW → panel — coarse agent activity indicator (M3-4 overlay builds on this). */
+/** SW → panel — coarse agent activity indicator (the panel chip + the page
+ * overlay mirror the same state, §5.2 item 6). */
 export interface TaskStatusMessage {
   type: "task_status";
-  state: "idle" | "working" | "awaiting_approval";
+  state: "idle" | "working" | "awaiting_approval" | "paused";
   detail?: string;
 }
 
