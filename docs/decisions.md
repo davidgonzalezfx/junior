@@ -273,3 +273,20 @@ says keep tool names stable because terminal-Claude users put them in CLAUDE.md 
 tools. Choice: **(b)** — the catalog is wire-stable from day one, and an honest "not available yet"
 beats a silent tool-list difference between M4-1 and M4-3 clients.
 Affects: `apps/bridge/src/mcp/tools.ts`.
+
+## 2026-10-24 · Terminal-Claude integration shape (M4-2)
+
+Context: plan §8 M4-2 names the server `junior` in its `claude mcp add` example and sketches the smoke
+test as "navigate to github.com/trending and read_page" against the live web. Two forks. (1) Name: the
+CLAUDE.md convention fixes the MCP server as `junior_browser` (tools `mcp__junior_browser__*`) — that
+name is what users put in CLAUDE.md files and what `--allowedTools` patterns must match, so the
+registration command uses `junior_browser` (plan example updated). (2) Smoke test: an env-gated vitest
+suite (`tests/e2e/terminal-claude.smoke.test.ts`, `JUNIOR_E2E_TERMINAL_CLAUDE=1`) runs the REAL CLI
+against the M3-5 harness — real bridge + real AgentLoop + the bank fixture — instead of a live
+github.com navigation. Rationale: the acceptance criterion is "(a) terminal Claude performs a guarded
+click end-to-end with an approval card"; the fixture proves the same guard→card→"once"→execute path
+hermetically (no external-site flakiness, no network dependence in CI-shaped runs, and the gating keeps
+the default `pnpm -r test` green gate free of model-token spend, same pattern as M0-4's real-gateway
+leg). Registration lessons (project-scope approval limbo, `--allowedTools` server-wide form) live in
+`progress.md → Learnings` and docs/terminal-claude.md.
+Affects: `tests/e2e/terminal-claude.smoke.test.ts`, `tests/e2e/harness.ts` (token exposed), plan §8 M4-2.

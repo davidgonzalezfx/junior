@@ -721,8 +721,11 @@ any file >400 lines is a smell to refactor).
 
 ### M4 — MCP server + both agent paths (2–3 days) (needs M1+M3)
 1. MCP server (streamable HTTP) + `junior-mcp` stdio proxy; tool catalog §4.6.
-2. Terminal-Claude integration: `claude mcp add --transport http junior http://127.0.0.1:8620/mcp --header
-  "Authorization: Bearer <token>"` documented + smoke test ("navigate to github.com/trending and read_page").
+2. Terminal-Claude integration: `claude mcp add --transport http junior_browser http://127.0.0.1:8620/mcp --header
+  "Authorization: Bearer <token>"` documented (docs/terminal-claude.md) + smoke test — done in M4-2
+  (`tests/e2e/terminal-claude.smoke.test.ts`, gated behind `JUNIOR_E2E_TERMINAL_CLAUDE=1`; acceptance (a)
+  demonstrated on the harness bank fixture — server name `junior_browser` per the CLAUDE.md naming
+  convention, decisions.md 2026-10-24).
 3. API engine agent mode: tools → dispatcher loop with `maxSteps`.
 4. CLI engine: spawn, mcp-config loopback, `--resume` session map, stream mapping (§4.5), native-tools
   toggle honored.

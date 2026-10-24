@@ -56,6 +56,9 @@ export interface HarnessOptions {
 
 export interface Harness {
   readonly bridgeUrl: string;
+  /** The bridge bearer token — clients outside this process (the M4-2 terminal-
+   * Claude smoke) need it to register against /mcp. */
+  readonly token: string;
   readonly tab: FakeTab;
   /** Live permission mode; the bridge guard and the guard mirror both read it. */
   mode: PermissionMode;
@@ -182,6 +185,7 @@ export async function startHarness(opts: HarnessOptions): Promise<Harness> {
 
   const harness: Harness = {
     bridgeUrl,
+    token,
     tab,
     cards,
     wireCards,

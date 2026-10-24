@@ -13,3 +13,8 @@ Cross-package e2e + fixtures (plan §2, §9). Unit tests live beside their sourc
   (unanswered cards default to deny, so tests fail loudly).
 - `e2e/harness-*.test.ts` — the scenarios. Run with `pnpm --filter @junior/tests-e2e
   test` (or the root `pnpm -r test`).
+- `e2e/terminal-claude.smoke.test.ts` — the M4-2 terminal-Claude e2e: the REAL
+  `claude` CLI, registered via `claude mcp add`, drives a guarded click on the
+  bank fixture through an approval card. Spends real model tokens, so it is
+  **gated**: `JUNIOR_E2E_TERMINAL_CLAUDE=1 pnpm --filter @junior/tests-e2e
+  exec vitest run terminal-claude` (see docs/terminal-claude.md).
