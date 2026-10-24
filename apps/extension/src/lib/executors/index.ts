@@ -23,6 +23,13 @@ import {
   type InPageRequest,
   type InPageResponse,
 } from "./in-page";
+import {
+  juniorReadTextInPage,
+  type BuildDomTreeArgs,
+  type BuildDomTreeResult,
+  type ReadTextRequest,
+  type ReadTextResponse,
+} from "./read-page";
 import { downscaleDataUrl } from "./screenshot";
 
 /** Matches ActionResultSchema minus the queue id (the SW loop owns the id). */
@@ -45,6 +52,11 @@ export type AskFn = (approval: ApprovalRequest) => Promise<"once" | "site" | "de
 export interface ExecutorEnv {
   getActiveTab(): Promise<ActiveTab | null>;
   runInPage(tabId: number, args: InPageRequest): Promise<InPageResponse>;
+  /** text/section read_page — self-contained fn via executeScript({func}). */
+  runReadInPage(tabId: number, args: ReadTextRequest): Promise<ReadTextResponse>;
+  /** outline/interactive read_page — injects public/vendor/buildDomTree.js and
+   *  calls window.buildDomTree(args); null when injection/invocation failed. */
+  runBuildDomTree(tabId: number, args: BuildDomTreeArgs): Promise<BuildDomTreeResult | null>;
   captureVisibleTab(): Promise<string>;
   permissionMode(): Promise<PermissionMode>;
   blockedOrigins(): Promise<readonly string[]>;
@@ -66,6 +78,44 @@ export const defaultEnv: ExecutorEnv = {
     });
     const first = results[0];
     return first?.result ?? { ok: false as const, error: "Injection returned no result" };
+  },
+  async runReadInPage(tabId, args) {
+    const results = await browser.scripting.executeScript({
+      target: { tabId },
+      func: juniorReadTextInPage,
+      args: [args],
+    });
+    const first = results[0];
+    return first?.result ?? { ok: false as const, error: "Injection returned no result" };
+  },
+  async runBuildDomTree(tabId, args) {
+    // Autono pattern (background.js:3553): inject the vendored file, then invoke
+    // window.buildDomTree with args (executeScript serializes only the body, so
+    // the call goes through a tiny trampoline that reads it off the page window).
+    // Runtime path is extension-root-relative WITHOUT a leading slash (Chrome
+    // rejects the slash; WXT's generated ScriptPublicPath type wants one — same
+    // types-vs-Chrome mismatch as captureVisibleTab's windowId, cast it).
+    await browser.scripting.executeScript({
+      target: { tabId },
+      files: ["vendor/buildDomTree.js"] as unknown as ["/vendor/buildDomTree.js"],
+    });
+    const results = await browser.scripting.executeScript({
+      target: { tabId },
+      func: (a: BuildDomTreeArgs) => {
+        const build = (
+          window as unknown as {
+            buildDomTree?: (a: BuildDomTreeArgs) => unknown;
+          }
+        ).buildDomTree;
+        if (typeof build !== "function") return null;
+        return build(a);
+      },
+      args: [args],
+    });
+    const res = results[0]?.result;
+    if (!res || typeof res !== "object" || !("text" in res)) return null;
+    const text = (res as { text: unknown }).text;
+    return typeof text === "string" ? { text } : null;
   },
   async captureVisibleTab() {
     // wxt types demand a number windowId, but Chrome's current-window form takes
@@ -181,7 +231,31 @@ export async function executeAction(
   }
 
   if (action.kind === "read_page") {
-    return errorOutcome("read_page is not implemented yet (lands with M3-2)");
+    const tab = await env.getActiveTab();
+    if (!tab?.id) return errorOutcome("No active browser tab to read");
+    if (isRestrictedUrl(tab.url)) return errorOutcome(RESTRICTED_TEXT);
+
+    if (action.mode === "outline" || action.mode === "interactive") {
+      // Vendored buildDomTree.js caps the output in-page at maxChars (§6.3-6).
+      try {
+        const res = await env.runBuildDomTree(tab.id, {
+          mode: action.mode,
+          maxChars: action.maxChars,
+        });
+        if (!res) return errorOutcome("Could not read the page (reader injection failed)");
+        return { status: "ok", result: res.text };
+      } catch (e) {
+        return errorOutcome(`read_page failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+
+    // text | section — capped in-page at maxChars (§6.3-6).
+    const res = await env.runReadInPage(tab.id, {
+      mode: action.mode,
+      selector: action.selector,
+      maxChars: action.maxChars,
+    });
+    return res.ok ? { status: "ok", result: res.text } : errorOutcome(res.error);
   }
 
   // Remaining kinds (click/type/scroll) act on the active tab.

@@ -116,9 +116,14 @@ export async function juniorActionInPage(args: InPageRequest): Promise<InPageRes
         `[data-highlight-index="${idx}"], [data-index="${idx}"], [highlight-index="${idx}"]`,
       );
       if (indexedEl && isVisible(indexedEl)) return indexedEl;
-      const map = (window as unknown as { __junior_dom_map?: Map<number, Element> })
-        .__junior_dom_map;
-      if (map && map.has(idx)) {
+      // The map is a cache stamped with the URL it was built for (vendored
+      // buildDomTree.js) — a SPA URL change invalidates it (plan §5.2).
+      const win = window as unknown as {
+        __junior_dom_map?: Map<number, Element>;
+        __junior_dom_map_url?: string;
+      };
+      const map = win.__junior_dom_map;
+      if (map && win.__junior_dom_map_url === window.location.href && map.has(idx)) {
         const el = map.get(idx);
         if (el && isVisible(el)) return el;
       }

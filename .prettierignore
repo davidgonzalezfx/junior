@@ -1,7 +1,10 @@
-pnpm-lock.yaml
+# hand-formatted
 *.md
+pnpm-lock.yaml
 node_modules/
 dist/
 .output/
 .wxt/
 spikes/cli/evidence/
+# vendored upstream (plan §6.1) — patched only via apps/extension/scripts/patch-buildDomTree.mjs
+**/public/vendor/

@@ -11,6 +11,7 @@ import {
 } from "@junior/protocol";
 import { executeAction, isRestrictedUrl, type ExecutorEnv } from "./index";
 import { juniorActionInPage, type InPageRequest } from "./in-page";
+import { juniorReadTextInPage, type BuildDomTreeArgs, type ReadTextRequest } from "./read-page";
 
 beforeAll(() => {
   Element.prototype.scrollIntoView = () => {};
@@ -47,6 +48,10 @@ function makeEnv(
       status: "complete",
     })),
     runInPage: vi.fn(async (_tabId: number, args: InPageRequest) => await juniorActionInPage(args)),
+    runReadInPage: vi.fn(
+      async (_tabId: number, args: ReadTextRequest) => await juniorReadTextInPage(args),
+    ),
+    runBuildDomTree: vi.fn(async (_tabId: number, _args: BuildDomTreeArgs) => null),
     captureVisibleTab: vi.fn(async () => "data:image/jpeg;base64,AAAA"),
     permissionMode: vi.fn(async () => opts.mode ?? "auto"),
     blockedOrigins: vi.fn(async () => ["http://127.0.0.1:8620" as const]),
@@ -217,10 +222,17 @@ describe("screenshot + get_active_tab + read_page", () => {
     });
   });
 
-  it("read_page is a placeholder until M3-2", async () => {
-    const env = makeEnv();
-    const res = await executeAction({ kind: "read_page", mode: "outline" } as BrowserAction, env);
+  it("read_page text returns capped body text via the shipping in-page fn", async () => {
+    const env = makeEnv({ dom: `<body><p>hello   world</p></body>` });
+    const res = await executeAction({ kind: "read_page", mode: "text", maxChars: 8000 }, env);
+    expect(res.status).toBe("ok");
+    expect(res.result).toBe("hello world");
+  });
+
+  it("read_page on a restricted page is refused (§6.3)", async () => {
+    const env = makeEnv({ tabUrl: "chrome://version/" });
+    const res = await executeAction({ kind: "read_page", mode: "text", maxChars: 8000 }, env);
     expect(res.status).toBe("error");
-    expect(res.error).toContain("M3-2");
+    expect(res.error).toContain("not permitted on internal Chrome pages");
   });
 });

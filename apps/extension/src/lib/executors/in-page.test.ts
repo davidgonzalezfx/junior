@@ -43,7 +43,12 @@ const supportsXPath = typeof document.evaluate === "function";
 
 describe("resolver strategies", () => {
   beforeEach(() => {
-    delete (window as unknown as { __junior_dom_map?: Map<number, Element> }).__junior_dom_map;
+    const win = window as unknown as {
+      __junior_dom_map?: Map<number, Element>;
+      __junior_dom_map_url?: string;
+    };
+    delete win.__junior_dom_map;
+    delete win.__junior_dom_map_url;
   });
 
   it("1. index match via data-highlight-index, then __junior_dom_map", async () => {
@@ -56,9 +61,13 @@ describe("resolver strategies", () => {
     mapped.textContent = "Mapped";
     document.body.appendChild(mapped);
     makeVisible(mapped);
-    (window as unknown as { __junior_dom_map?: Map<number, Element> }).__junior_dom_map = new Map([
-      [3, mapped],
-    ]);
+    // The map is trusted only while its build-time URL stamp matches (M3-2).
+    const win = window as unknown as {
+      __junior_dom_map?: Map<number, Element>;
+      __junior_dom_map_url?: string;
+    };
+    win.__junior_dom_map = new Map([[3, mapped]]);
+    win.__junior_dom_map_url = window.location.href;
     expect((await juniorActionInPage({ op: "probe", mode: "click", target: "#3" })).ok).toBe(true);
   });
 
