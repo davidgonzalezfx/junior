@@ -281,8 +281,8 @@ export const PairingResultSchema = z.object({ ok: z.literal(true), alreadyPaired
 | `GET /api/health` | none | liveness only (no data): `{ok: true}` |
 | `GET /api/status` | token | `BridgeStatusSchema` |
 | `POST /api/chat` | token | AI SDK UI message stream (SSE); body `ChatRequestBodySchema` |
-| `POST /mcp` | token | MCP JSON-RPC 2.0 (streamable HTTP transport) |
-| `GET /mcp/http` | token | MCP streamable-HTTP GET leg |
+| `POST /mcp` | token | MCP JSON-RPC 2.0 (streamable HTTP, stateless JSON mode — decisions.md 2026-10-24); `tools/call` rate-limited 30/min (§4.2) |
+| `GET /mcp/http` | token | **405** — no GET listening leg in stateless mode (decisions.md 2026-10-24); spec permits |
 | `GET /api/agent/next-action?timeout=15` | token | extension long-poll → `QueueItemSchema \| {item: null}` |
 | `POST /api/agent/action-result` | token | `ActionResultSchema` |
 | `POST /api/agent/approval-response` | token | `ApprovalDecisionSchema` |

@@ -240,3 +240,36 @@ use a real domain from the SENSITIVE_SITES table (`chase.com`) with `tests/fixtu
 page — no network is ever touched; the harness tab is the only "web". Card answers are scripted
 (`answerNext`; unscripted cards default to deny so tests fail loudly).
 Affects: plan §8 M3-5 wording, `tests/` (new workspace member), `pnpm-workspace.yaml`.
+
+## 2026-10-24 · MCP transport: stateless JSON-mode streamable HTTP (M4-1)
+
+Context: plan §4.6/§3 lists `POST /mcp` + a `GET /mcp/http` "GET leg", transport unspecified beyond
+"@modelcontextprotocol/sdk, streamable HTTP". Options: (a) stateful sessions (sessionIdGenerator +
+session map, SSE responses, live GET leg); (b) stateless — a fresh `McpServer` +
+`WebStandardStreamableHTTPServerTransport` per POST with `enableJsonResponse: true`. Choice: **(b)**.
+Tool calls are self-contained request→result round-trips through the dispatcher; persistent sessions
+add restart-state and a second lifetime to manage for no capability the browser tools use, and plain
+JSON responses are exactly what the `junior-mcp` stdio proxy forwards (ModelBridge's SSE path queued
+responses nowhere — plan §7-14). Consequence: the GET listening leg returns 405 (streamable HTTP
+permits refusing it; the SDK client treats 405 as "server has no listening leg" and carries on) —
+plan §3's `GET /mcp/http` row updated to say so. The per-request server+transport pair is torn down
+after the JSON body is drained (its body stream is tied to the transport).
+Affects: `apps/bridge/src/mcp/server.ts`, plan §3 HTTP table.
+
+## 2026-10-24 · The §4.2 rate limit meters `tools/call` only (M4-1)
+
+Context: plan §4.2 says "rate-limit `POST /mcp` tool calls (e.g. 30/min burst)" — ambiguous between
+all POSTs and tool calls only. Choice: **`tools/call` only**, 30/min burst (rate-limit.ts finally
+mounted; the M1-1 backlog seed resolves here). Rationale: the brake exists for quota burn — a model
+looping browser actions — while `initialize`/`tools/list`/`ping` are cheap lifecycle calls that a
+client may legitimately burst on (re)connect; metering them would false-trip handshakes.
+Affects: `apps/bridge/src/mcp/server.ts`, plan §4.2 unchanged (reads correctly under this reading).
+
+## 2026-10-24 · `agent_task` registered as an explicit stub (M4-1)
+
+Context: plan §4.6's catalog includes `agent_task` but the agent engines land in M4-3/M4-4; §4.6 also
+says keep tool names stable because terminal-Claude users put them in CLAUDE.md files. Options:
+(a) omit the tool until M4-3; (b) register it now, returning `isError` with a pointer to the browse
+tools. Choice: **(b)** — the catalog is wire-stable from day one, and an honest "not available yet"
+beats a silent tool-list difference between M4-1 and M4-3 clients.
+Affects: `apps/bridge/src/mcp/tools.ts`.

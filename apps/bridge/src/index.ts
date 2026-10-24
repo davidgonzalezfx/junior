@@ -11,6 +11,8 @@ import { agentRoutes } from "./dispatcher/routes.js";
 import { chatRoutes } from "./chat/routes.js";
 import { providersRoutes } from "./providers.js";
 import { bearerAuth, corsAllowlist, tokensMatch, type Logger } from "./auth.js";
+import { mcpRoutes } from "./mcp/server.js";
+import type { RateLimiter } from "./rate-limit.js";
 import {
   consumePairingWindow,
   juniorDir,
@@ -38,6 +40,8 @@ export interface BridgeDeps {
   chat?: { fetch?: typeof fetch };
   /** /api/config/test seams — models-fetch wire + env for the "test provider" button. */
   providers?: { test?: ProviderTestDeps };
+  /** /mcp seams — rate-limiter injection for tests. */
+  mcp?: { limiter?: RateLimiter };
 }
 
 export function createApp(deps: BridgeDeps = { dir: juniorDir() }) {
@@ -102,6 +106,24 @@ export function createApp(deps: BridgeDeps = { dir: juniorDir() }) {
 
   // M1-2: dispatcher long-poll + result/approval posts (fall under auth above).
   app.route("/api/agent", agentRoutes(dispatcher));
+
+  // M4-1: MCP streamable HTTP (§4.6) — same bearer gate as /api/*, mounted explicitly
+  // on /mcp (the /api/* pattern above doesn't cover it).
+  app.use(
+    "/mcp",
+    bearerAuth(() => readToken(deps.dir), log),
+  );
+  app.route(
+    "/",
+    mcpRoutes({
+      dir: deps.dir,
+      dispatcher,
+      log,
+      limiter: deps.mcp?.limiter,
+      probe: deps.status?.probe, // same seams as /api/status — junior_status shares it
+      version: deps.status?.version,
+    }),
+  );
 
   // M1-3: /api/status — bridge facts + provider availability + CLI detection.
   app.route("/api", statusRoutes({ dir: deps.dir, dispatcher, ...deps.status }));

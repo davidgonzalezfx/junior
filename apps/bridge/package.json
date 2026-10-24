@@ -5,15 +5,18 @@
   "type": "module",
   "description": "Junior bridge — Hono on 127.0.0.1:8620: chat engines, dispatcher, MCP server (plan §4).",
   "bin": {
-    "junior-bridge": "dist/bin.js"
+    "junior-bridge": "dist/bin.js",
+    "junior-mcp": "dist/mcp/stdio-proxy.js"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "4.0.87",
     "@ai-sdk/openai-compatible": "2.0.87",
     "@hono/node-server": "2.1.5",
     "@junior/protocol": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "ai": "7.0.151",
-    "hono": "4.13.13"
+    "hono": "4.13.13",
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "tsx": "4.23.15"

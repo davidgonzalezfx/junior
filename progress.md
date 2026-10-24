@@ -4,8 +4,8 @@
 > Plan of record: `plan.md` · Decision log: `docs/decisions.md` (created on first entry)
 
 **Updated:** 2026-10-24
-**Current milestone:** M3 Browser tool layer (5/5, complete)
-**Current task:** none claimed (**next up: M4-1** MCP server streamable-HTTP + `junior-mcp` stdio proxy + token, per plan §8)
+**Current milestone:** M4 MCP server + agent paths (1/5)
+**Current task:** none claimed (**next up: M4-2** terminal-Claude e2e: `claude mcp add` + guarded click through approval card, per plan §8)
 **Current blockers:** none
 
 ---
@@ -56,7 +56,7 @@
 
 ## M4 checklist
 
-- [ ] M4-1 MCP server (streamable HTTP) + `junior-mcp` stdio proxy + token
+- [x] M4-1 MCP server (streamable HTTP) + `junior-mcp` stdio proxy + token — done. `apps/bridge/src/mcp/`: **tools.ts** — §4.6 catalog (`junior_status` reusing /api/status pieces incl. real CLI detection, `get_active_tab`, `read_page`, `navigate`, `click`, `type`, `screenshot`, `agent_task` stub) over `Dispatcher.dispatch` — MCP clients traverse the SAME guard + approval-card path as the panel; JSON text content, `isError` for denied/error (guard strings ride through verbatim), size caps 20k chars / 1M for screenshots (§6.3-6); **server.ts** — stateless JSON-mode streamable HTTP at `/mcp` (fresh McpServer + WebStandardStreamableHTTPServerTransport per POST, decisions.md ×3), GET/DELETE → 405, **rate-limit.ts finally mounted**: 30/min burst on `tools/call` only → 429 JSON-RPC error; **stdio-proxy.ts** — `junior-mcp` bin (port of mcp_server.py): line-loop → POST /mcp with `Authorization: Bearer` from `~/.junior/token`, URL from config port (§7-11 one config source), 202 notifications emit nothing, bridge-down/401/403 → -32603 with `junior-bridge serve`/`pair` hints. Gates: 155 bridge (+15 incl. an SDK-Client test over the real app and a **spawn test of the bin entry**) — 531 total; typecheck/build/lint/format green. **Acceptance (live, real dist + JUNIOR_HOME=tmpdir):** no-token 401; initialize → `serverInfo junior-browser`; tools/list = the 8 §4.6 names; guarded navigate live: tool call → approval item `new_site` → `approval-response once` → action item → action-result → `{"url":…,"title":"Acceptance page"}` back as tool content; unanswered card → 120 s default-deny `BLOCKED_BY_POLICY`; loopback nav denied per §4.4; `junior_status` shows real `claude 2.1.310` detection + browserConnected; GET /mcp → 405. Real `junior-mcp` bin over stdio: initialize/tools-list/tools-call forwarded with token, notification silent, no-token client gets the re-pair hint. M4 1/5. Commit (see session log)
 - [ ] M4-2 Terminal-Claude e2e: `claude mcp add` + guarded click through approval card
 - [ ] M4-3 API engine agent mode (tools → dispatcher, maxSteps)
 - [ ] M4-4 CLI engine: spawn, mcp-config loopback, `--resume` session map, stream→UI parts mapping
@@ -241,6 +241,17 @@
 - [vitest] `new Promise((r) => setTimeout(r, 50))` infers `Promise<unknown>` → TS2554 "Expected 1 arguments, but got 0" on `r` — always annotate `new Promise<void>`.
 
 
+### 2026-10-24 (M4-1 MCP server + stdio proxy session — @modelcontextprotocol/sdk@1.32.1)
+
+- [mcp] Pinned `@modelcontextprotocol/sdk@1.32.1` (exact). The v2 line lives under NEW package names (`@modelcontextprotocol/server`/`node`/`client`) — 1.32.x already ships the good parts in one package: `WebStandardStreamableHTTPServerTransport` (subpath `sdk/server/webStandardStreamableHttp.js`, NOT the barrel), `McpServer.registerTool` accepting zod-v4 schemas (peer `^3.25 || ^4` — our 4.6.5 fine), wildcard `./*` exports.
+- [mcp] Hono integration that works: `new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })` + `await transport.handleRequest(c.req.raw, { parsedBody })` → `Promise<Response>`; pass `parsedBody` when middleware already consumed the body. POST **requires both** Accept media types (`application/json, text/event-stream`) or the transport rejects.
+- [mcp] In JSON mode `handleRequest`'s Response body is tied to the transport — drain `await res.text()` BEFORE `server.close()`, then return a fresh materialized Response; closing first hangs the response forever (cost one debug cycle).
+- [mcp] Stateless server: GET/DELETE → 405 is spec-fine and the SDK client treats a 405 GET as "no listening leg" and proceeds; each POST is self-contained so raw JSON-RPC curl tests need no initialize dance.
+- [bridge] The dispatcher's 120 s action timeout applies to MCP tool calls: a test that pre-dispatches its OWN queue item then polls steals the item and strands the tool call until timeout — looks like a hang/vitest 5 s timeout. The tool call creates its own item; poll THAT.
+- [mcp] Bin autostart guard: filename `endsWith("stdio-proxy")` silently never matches `stdio-proxy.js` — the whole bin no-ops with exit 0. Use `import.meta.url === pathToFileURL(process.argv[1]).href` and cover it with a spawn test.
+- [security] Live proof of §4.4 through MCP: `tools/call navigate` in ask mode surfaces an APPROVAL queue item (`new_site`) — answer `approval-response {decision:"once"}` then the action item arrives; unanswered → 120 s `BLOCKED_BY_POLICY` default-deny returned as an `isError` tool result. M4-2's acceptance is one `claude mcp add` away from this curl rehearsal.
+
+
 ### 2026-10-23 (M3-3 approvals + Port routing session — wxt@0.21.4, vitest@5.0.5)
 
 - [bridge] `dispatcher.dispatch()` called BEFORE any poll resolves immediately with the no-panel deny (`connected()` false) — any driver script must start its poll loop FIRST, then dispatch (cost one silent-hang debug cycle: the mock loop polled forever on a body it never matched).
@@ -264,16 +275,17 @@
 
 > Ideas discovered mid-work land here (protocol: CLAUDE.md). Never into the current diff.
 
-- (from post-M0 review 2026-10-23) **Early M4-1 probe (~30 min, could ride along any M1 session with the bridge up):** verify a *reachable* MCP loopback — `--mcp-config` → `http://127.0.0.1:8620/mcp` **with the token in headers** (`~/.junior/mcp.json` header shape unverified; M0-3 only proved unreachable = non-fatal) and confirm stream-json `tool_use` events carry `mcp__junior_browser__*` names.
+- (from post-M0 review 2026-10-23) ~~Early M4-1 probe: verify a *reachable* MCP loopback with the token in headers~~ **RESOLVED M4-1 (2026-10-24):** live acceptance did exactly this — initialize/tools-list/tools-call over `http://127.0.0.1:8620/mcp` with `Authorization: Bearer`, plus an SDK-Client test; `tool_use` naming check remains for M4-2.
 - (from post-M0 review 2026-10-23) M2 must not assume the OpenAI-compatible happy path: mock doesn't cover in-stream error frames on HTTP 200 (OpenRouter's documented failure mode), reasoning-token deltas, slashed routing model names. Revisit when M2-3 wires the fallback chain.
 - (from M1-1, 2026-10-23) **M2-1 must pin the extension id** (manifest `key` field) and then tighten `isAllowedOrigin` in `apps/bridge/src/auth.ts` from the `chrome-extension://[a-p]{32}` wildcard to the exact id (decisions.md 2026-10-23 — wildcard is safe only because every data route still demands the token).
-- (from M1-1, 2026-10-23) §4.2's "rate-limit POST /mcp" is implemented as `apps/bridge/src/rate-limit.ts` (30/min burst, tested) but NOT yet mounted anywhere — M4 must wire it into the `/mcp` route or the brake silently never engages.
+- (from M1-1, 2026-10-23) ~~§4.2's "rate-limit POST /mcp" is implemented as rate-limit.ts but NOT yet mounted~~ **RESOLVED M4-1 (2026-10-24):** mounted on /mcp, 30/min burst, `tools/call` only (decisions.md).
 - (from M1-2, 2026-10-23) `ActionResultSchema` could tighten status↔payload consistency (`ok` ⇒ no `error`; `error`/`denied` ⇒ `error` present) — left loose for M3 executor ergonomics; revisit only if a real bug demands it.
 - (from M1-3, 2026-10-23) cli-detect's win32 branches (WinGet glob, npm-roaming shims, `cmd.exe /d /s /c` for `.cmd`) are unit-tested with fixtures but never exercised on real Windows — verify on a Windows box in the M5 hardening pass.
 - (from M1-3, 2026-10-23) `/api/status` spawns `claude --version` + `auth status` per call (ModelBridge parity, ~100 ms); if M2's picker ever polls it continuously, add a short TTL cache then — not before.
 - (from M2-5, 2026-10-23) Plan §5.3's virtua-virtualized message list is NOT in M2-5's checklist item and is still plain rendering — revisit if long sessions get slow (M5 polish candidate).
 - (from M3-3, 2026-10-23) §5.2 item 5 lists `pick_element` (armed picker, 10-min expiry) and `bridge_status` as Port types — the firewall/allowlist is shaped for them (CONTENT_SCRIPT_TYPES includes `pick_response`) but neither flow is built; the element picker has no milestone slot (M5/backlog candidate).
 - (from M3-4, 2026-10-23) The overlay has no ✕/cancel affordance (Autono content.js:200–226 sends `cancel_task`) — M4-5's kill/crash work should add the cancel_task wire + button when futures resolve denied; without it a stuck agent can only be paused, not stopped, from the page.
+- (from M4-1, 2026-10-24) §4.6's MCP catalog has no `scroll` tool (the §4.5 chat tool set does) — terminal-Claude can't scroll; add it to the catalog in M5 polish if real usage wants it (one registerTool block, names stay additive).
 
 ## Session log
 
@@ -299,3 +311,4 @@
 - 2026-10-23 · M3-3 · approvals+Port green: PortRouter firewall (Autono isExtPage/allowlist ports), AgentLoop long-poll routing, PanelApprovalBroker 120 s default-deny + session site-grants through guard-mirror, panel card stack with countdown ring + Agent & Security matrix display; 41 new ext tests (176 ext, 467 total) + full gates + LIVE wire acceptance vs real bridge dist (card→site→execute, grant suppresses 2nd card, deny→USER_DENIED); deltas → decisions.md, plan §5.2 updated; M3 3/5 · 58855b7, c44eb7c
 - 2026-10-24 · M3-4 · work overlay green: unlisted-script overlay.js injected on demand (manifest stays clean — decisions.md), thin border + Pause/Resume in closed shadow root with isTrusted interception, SW WorkOverlayController behind the content-script firewall, AgentLoop local pause (stops polling, in-flight items answered denied:paused) + panel status chip; 35 new ext tests (211 ext, 502 total) + full gates + LIVE wire acceptance (pause mid-action → bridge future denied:paused, resume → executes); plan §5.2 item 6 + tree updated · e80e361, 5ec3371
 - 2026-10-24 · M3-5 · fake-model harness green: tests/ workspace package (decisions.md — script→vitest suite) — real bridge (source, ephemeral port) + real AgentLoop/executors vs jsdom fake-tab with per-origin global stamping; every action kind + secret-field refusal (auto+ask) + policy denials on fixtures/page.html + the M3 acceptance sensitive flow on chase.com (wire card → once, mirror card → once, site grant → silent, secret refused); 4 harness tests (506 total) + full gates; plan §8 M3-5 annotated; **M3 complete 5/5 → M4-1 next** · d7f1144
+- 2026-10-24 · M4-1 · MCP server + stdio proxy green: stateless JSON-mode streamable HTTP at /mcp (decisions.md ×3), §4.6 catalog over the dispatcher (same guard/cards as the panel), rate-limit mounted on tools/call, junior-mcp bin (token + one config source); 15 new bridge tests incl. SDK-Client + bin-spawn (531 total) + full gates + LIVE acceptance (guarded navigate through a real approval card, 120 s default-deny, real bin over stdio); plan §3 table updated; **M4 1/5 → M4-2 next** · (see commit)
