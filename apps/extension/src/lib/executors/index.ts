@@ -143,6 +143,9 @@ export const defaultEnv: ExecutorEnv = {
 export interface ExecuteOptions {
   /** Approval path for "ask" verdicts. Default: deny (§6.3-3 — closed panel included). */
   ask?: AskFn;
+  /** M3-3 session site grants: when the page's registrable domain was granted,
+   * ask verdicts collapse to allow (guard-mirror still denies secrets/private nets). */
+  granted?: (pageUrl: string) => Promise<boolean>;
 }
 
 // Port of Autono isRestrictedUrl (background.js:1751–1773): internal pages are
@@ -285,12 +288,14 @@ export async function executeAction(
           mode: await env.permissionMode(),
           pageUrl: tab.url ?? "",
           facts: probe.facts as InPageClickFacts,
+          granted: await opts.granted?.(tab.url ?? ""),
         })
       : checkTypeFacts({
           mode: await env.permissionMode(),
           pageUrl: tab.url ?? "",
           facts: probe.facts as InPageFieldFacts,
           text: text ?? "",
+          granted: await opts.granted?.(tab.url ?? ""),
         });
 
   if (verdict.verdict === "deny") return { status: "denied", error: verdict.error };

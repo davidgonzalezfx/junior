@@ -4,11 +4,14 @@
 // debounced writes + write-on-hide, 200-session cap with export prompt).
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { UIMessage } from "ai";
+import { ApprovalCardStack } from "@/components/approvals/approval-card";
 import { BridgeStatusBar } from "@/components/bridge-status-bar";
 import { ChatPanel } from "@/components/chat-panel";
 import { HistoryPanel } from "@/components/history/history-panel";
 import { Onboarding } from "@/components/onboarding";
 import { ProvidersSettings } from "@/components/settings/providers-settings";
+import { SecuritySettings } from "@/components/settings/security-settings";
+import { useApprovalCards } from "@/hooks/use-approval-cards";
 import {
   SessionStore,
   attachWriteOnHide,
@@ -39,6 +42,8 @@ export default function App() {
     });
   }
   const store = storeRef.current;
+  // M3-3 Port channel: pending approval cards + agent status (plan §5.2 item 5).
+  const agentChannel = useApprovalCards();
 
   // Write-on-hide: panel close lands any pending snapshot immediately (§5.3).
   useEffect(() => attachWriteOnHide(store), [store]);
@@ -106,7 +111,10 @@ export default function App() {
     <div className="flex h-screen flex-col bg-background text-foreground">
       <BridgeStatusBar />
       {view === "providers" ? (
-        <ProvidersSettings onBack={() => setView("chat")} />
+        <div className="flex flex-1 flex-col gap-6 overflow-y-auto p-4">
+          <ProvidersSettings onBack={() => setView("chat")} />
+          <SecuritySettings />
+        </div>
       ) : view === "history" && session !== null ? (
         <HistoryPanel
           activeId={session.id}
@@ -149,6 +157,8 @@ export default function App() {
           <ChatPanel session={session} onRecord={handleRecord} />
         </div>
       ) : null}
+      {/* Approval cards ride at the bottom over any view (§5.3 bottom-sheet). */}
+      <ApprovalCardStack cards={agentChannel.cards} respond={agentChannel.respond} />
     </div>
   );
 }

@@ -9,11 +9,15 @@ import {
   ProvidersPatchSchema,
   ProvidersViewSchema,
   ProviderTestResultSchema,
+  QueueItemSchema,
+  type ActionResult,
+  type ApprovalDecision,
   type BridgeStatus,
   type PairingResult,
   type PairingStatus,
   type ProvidersPatch,
   type ProvidersView,
+  type QueueItem,
 } from "@junior/protocol";
 
 /** The bridge is down (fetch threw) — no HTTP status exists. */
@@ -130,6 +134,58 @@ export async function testProvider(
     token,
     body: { providerId },
   });
+}
+
+// --- Agent loop (M3-3, plan §5.2 item 2) ---------------------------------------
+
+/** GET /api/agent/next-action — the SW long-poll. Idle answers come back as
+ * `{item: null}`, which is NOT a QueueItem (zod discriminated unions reject it,
+ * M1-2 learning) — distinguish the two shapes before parsing. */
+export async function fetchNextAction(
+  baseUrl: string,
+  token: string,
+  timeoutMs: number,
+): Promise<QueueItem | null> {
+  return bridgeFetch(
+    baseUrl,
+    `/api/agent/next-action?timeout=${Math.ceil(timeoutMs / 1000)}`,
+    (raw) => {
+      if (typeof raw === "object" && raw !== null && "item" in raw) {
+        return raw.item === null ? null : QueueItemSchema.parse(raw.item);
+      }
+      return QueueItemSchema.parse(raw);
+    },
+    { token },
+  );
+}
+
+/** POST /api/agent/action-result — resolves the bridge future the agent awaits. */
+export async function postActionResult(
+  baseUrl: string,
+  token: string,
+  result: ActionResult,
+): Promise<void> {
+  await bridgeFetch(baseUrl, "/api/agent/action-result", (raw) => raw as { delivered: boolean }, {
+    method: "POST",
+    token,
+    body: result,
+  });
+}
+
+/** POST /api/agent/approval-response — answers a card; false when already resolved
+ * (e.g. the bridge timed the approval out first). */
+export async function postApprovalDecision(
+  baseUrl: string,
+  token: string,
+  decision: ApprovalDecision,
+): Promise<boolean> {
+  const wire = await bridgeFetch(
+    baseUrl,
+    "/api/agent/approval-response",
+    (raw) => raw as { delivered: boolean },
+    { method: "POST", token, body: decision },
+  );
+  return wire.delivered === true;
 }
 
 /**

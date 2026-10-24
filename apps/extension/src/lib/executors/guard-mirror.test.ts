@@ -183,3 +183,37 @@ describe("checkTypeFacts", () => {
     );
   });
 });
+
+describe("site grants (M3-3 `granted` input)", () => {
+  it("suppresses a supervised ask on a granted site (click)", () => {
+    expect(
+      checkClickFacts({ mode: "ask", pageUrl: PAGE, facts: benignLink, granted: true }),
+    ).toEqual({ verdict: "allow" });
+  });
+
+  it("suppresses a supervised ask on a granted site (type)", () => {
+    expect(
+      checkTypeFacts({ mode: "ask", pageUrl: PAGE, facts: benignField, text: "hi", granted: true }),
+    ).toEqual({ verdict: "allow" });
+  });
+
+  it("never waives a deny: secret fields stay refused with a grant", () => {
+    const secret = { ...benignField, autocomplete: "current-password" };
+    expect(
+      checkTypeFacts({ mode: "ask", pageUrl: PAGE, facts: secret, text: "x", granted: true })
+        .verdict,
+    ).toBe("deny");
+  });
+
+  it("never waives a private_network ask with a grant", () => {
+    const toPrivate = { ...benignLink, href: "http://127.0.0.1:8080/admin" };
+    const check = checkClickFacts({
+      mode: "ask",
+      pageUrl: PAGE,
+      facts: toPrivate,
+      granted: true,
+    });
+    expect(check.verdict).toBe("ask");
+    if (check.verdict === "ask") expect(check.approval.reasonCodes).toContain("private_network");
+  });
+});

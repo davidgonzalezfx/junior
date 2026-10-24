@@ -29,6 +29,9 @@ export interface ClickCheckInput {
   mode: unknown;
   pageUrl: string;
   facts: InPageClickFacts;
+  /** The user already allowed this site (M3-3 session grants): suppresses the ask,
+   * never a deny. private_network asks stay — a site grant can't waive the network. */
+  granted?: boolean;
 }
 
 export interface TypeCheckInput {
@@ -36,6 +39,8 @@ export interface TypeCheckInput {
   pageUrl: string;
   facts: InPageFieldFacts;
   text: string;
+  /** See ClickCheckInput.granted. */
+  granted?: boolean;
 }
 
 /** Guard check for `click`, from real probed element facts (§6.3-1: never model text). */
@@ -89,6 +94,7 @@ export function checkClickFacts(input: ClickCheckInput): PreActCheck {
   const decision = permissionDecision(mode, codes);
   if (decision === "allow") return { verdict: "allow" };
   if (decision === "deny") return { verdict: "deny", error: denialTextFor(mode) };
+  if (input.granted && !codes.includes("private_network")) return { verdict: "allow" };
   // Card-parity with the bridge's SessionGuard: a supervised ask with no specific
   // reason still says why it asked (routine_supervised).
   if (codes.length === 0) {
@@ -137,6 +143,7 @@ export function checkTypeFacts(input: TypeCheckInput): PreActCheck {
   const decision = permissionDecision(mode, codes);
   if (decision === "allow") return { verdict: "allow" };
   if (decision === "deny") return { verdict: "deny", error: denialTextFor(mode) };
+  if (input.granted && !codes.includes("private_network")) return { verdict: "allow" };
   if (codes.length === 0) {
     codes.push("routine_supervised");
     reasons.push({ code: "routine_supervised", text: "Supervised mode asks before every action" });
@@ -158,11 +165,9 @@ export function checkTypeFacts(input: TypeCheckInput): PreActCheck {
   };
 }
 
-// Site-grant state ("allow for this site", seenDomains) lives in the bridge's
-// SessionGuard — it has already approved the page by the time the action is
-// queued here. When the M3-3 Port flow needs to persist panel grants
-// extension-side, thread them through as an extra input on the two check
-// functions above rather than growing module state.
+// Site-grant state ("allow for this site") arrives via the `granted` input on the
+// two check functions above — callers (the M3-3 agent loop) read lib/site-grants.ts
+// and pass `grantCovers(...)`; this module holds no storage or module state.
 
 function siteDomainOf(url: string): string | undefined {
   const v = validateAgentUrl(url);

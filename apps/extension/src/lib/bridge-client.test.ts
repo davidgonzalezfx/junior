@@ -5,9 +5,12 @@ import {
   BridgeHttpError,
   BridgeUnreachableError,
   fetchHealth,
+  fetchNextAction,
   fetchPairingStatus,
   fetchStatus,
   nextDelayMs,
+  postApprovalDecision,
+  postActionResult,
   postPairing,
 } from "@/lib/bridge-client";
 
@@ -131,5 +134,66 @@ describe("nextDelayMs", () => {
     }
     expect(nextDelayMs(0)).toBeGreaterThanOrEqual(1000);
     expect(nextDelayMs(10)).toBeGreaterThanOrEqual(30_000); // capped
+  });
+});
+
+// --- Agent loop endpoints (M3-3) ----------------------------------------------
+
+describe("agent loop endpoints", () => {
+  const token = "tok";
+
+  it("fetchNextAction returns the parsed QueueItem", async () => {
+    const item = {
+      id: "a".repeat(8),
+      kind: "action",
+      action: { kind: "get_active_tab" },
+      createdAt: 1,
+      timeoutMs: 120_000,
+    };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, item));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(fetchNextAction("http://127.0.0.1:8620", token, 15_000)).resolves.toEqual(item);
+    expect(fetchMock.mock.calls[0]![0]).toBe(
+      "http://127.0.0.1:8620/api/agent/next-action?timeout=15",
+    );
+    expect(fetchMock.mock.calls[0]![1].headers.Authorization).toBe(`Bearer ${token}`);
+  });
+
+  it("fetchNextAction maps the idle {item: null} body to null (not a parse failure)", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(200, { item: null })));
+    await expect(fetchNextAction("http://127.0.0.1:8620", token, 15_000)).resolves.toBeNull();
+  });
+
+  it("fetchNextAction throws on a malformed non-idle body (never silently drops it)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse(200, { item: { kind: "nonsense" } })),
+    );
+    await expect(fetchNextAction("http://127.0.0.1:8620", token, 15_000)).rejects.toThrow();
+  });
+
+  it("postActionResult / postApprovalDecision hit their routes with the token", async () => {
+    // A fresh Response per call — a Response body can only be read once.
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(async (_url: string, _init: unknown) =>
+        jsonResponse(200, { delivered: true }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    await postActionResult("http://127.0.0.1:8620", token, {
+      id: "x",
+      status: "ok",
+      result: "r",
+    });
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toEqual({
+      id: "x",
+      status: "ok",
+      result: "r",
+    });
+    expect(fetchMock.mock.calls[0]![0]).toBe("http://127.0.0.1:8620/api/agent/action-result");
+    await expect(
+      postApprovalDecision("http://127.0.0.1:8620", token, { id: "x", decision: "once" }),
+    ).resolves.toBe(true);
+    expect(fetchMock.mock.calls[1]![0]).toBe("http://127.0.0.1:8620/api/agent/approval-response");
   });
 });
