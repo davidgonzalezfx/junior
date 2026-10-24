@@ -4,8 +4,8 @@
 > Plan of record: `plan.md` · Decision log: `docs/decisions.md` (created on first entry)
 
 **Updated:** 2026-10-24
-**Current milestone:** M4 MCP server + agent paths (1/5)
-**Current task:** none claimed (**next up: M4-2** terminal-Claude e2e: `claude mcp add` + guarded click through approval card, per plan §8)
+**Current milestone:** M4 MCP server + agent paths (2/5)
+**Current task:** none claimed (**next up: M4-3** API engine agent mode: tools → dispatcher loop with `maxSteps`, per plan §8)
 **Current blockers:** none
 
 ---
@@ -18,7 +18,7 @@
 | M1 Bridge core (Hono, auth, dispatcher, guard, status) | ✅ done (4/4) | M1-4 guard: pure tables/matrix in `@junior/protocol` + SessionGuard in bridge; M2/M3 unblocked (parallelizable per plan §8) |
 | M2 Extension shell + chat (WXT, useChat, ⌘K picker, settings, history) | ✅ done (5/5) | M2-1 scaffold, M2-2 pairing/bridge-client, M2-3 chat, M2-4 picker+providers, M2-5 history done; M3/M4 unblocked |
 | M3 Browser tool layer (executors, read_page, approvals, overlay) | ✅ done (5/5) | M3-1 executors, M3-2 read_page, M3-3 approvals+Port routing, M3-4 overlay+pause, M3-5 fake-model harness done; M4 unblocked |
-| M4 MCP server + agent paths (streamable HTTP, stdio proxy, CLI engine) | ⬜ blocked by M1+M3 (both done) | terminal-Claude e2e is the headline demo |
+| M4 MCP server + agent paths (streamable HTTP, stdio proxy, CLI engine) | ◐ 2/5 | M4-1 MCP+stdio proxy, M4-2 terminal-Claude e2e done (the headline demo); M4-3/M4-4/M4-5 remain |
 | M5 Polish + hardening | ⬜ blocked by M4 | security + perf passes per plan §8 |
 | M6 Buffer / backlog seeds | ⬜ | |
 
@@ -57,7 +57,7 @@
 ## M4 checklist
 
 - [x] M4-1 MCP server (streamable HTTP) + `junior-mcp` stdio proxy + token — done. `apps/bridge/src/mcp/`: **tools.ts** — §4.6 catalog (`junior_status` reusing /api/status pieces incl. real CLI detection, `get_active_tab`, `read_page`, `navigate`, `click`, `type`, `screenshot`, `agent_task` stub) over `Dispatcher.dispatch` — MCP clients traverse the SAME guard + approval-card path as the panel; JSON text content, `isError` for denied/error (guard strings ride through verbatim), size caps 20k chars / 1M for screenshots (§6.3-6); **server.ts** — stateless JSON-mode streamable HTTP at `/mcp` (fresh McpServer + WebStandardStreamableHTTPServerTransport per POST, decisions.md ×3), GET/DELETE → 405, **rate-limit.ts finally mounted**: 30/min burst on `tools/call` only → 429 JSON-RPC error; **stdio-proxy.ts** — `junior-mcp` bin (port of mcp_server.py): line-loop → POST /mcp with `Authorization: Bearer` from `~/.junior/token`, URL from config port (§7-11 one config source), 202 notifications emit nothing, bridge-down/401/403 → -32603 with `junior-bridge serve`/`pair` hints. Gates: 155 bridge (+15 incl. an SDK-Client test over the real app and a **spawn test of the bin entry**) — 531 total; typecheck/build/lint/format green. **Acceptance (live, real dist + JUNIOR_HOME=tmpdir):** no-token 401; initialize → `serverInfo junior-browser`; tools/list = the 8 §4.6 names; guarded navigate live: tool call → approval item `new_site` → `approval-response once` → action item → action-result → `{"url":…,"title":"Acceptance page"}` back as tool content; unanswered card → 120 s default-deny `BLOCKED_BY_POLICY`; loopback nav denied per §4.4; `junior_status` shows real `claude 2.1.310` detection + browserConnected; GET /mcp → 405. Real `junior-mcp` bin over stdio: initialize/tools-list/tools-call forwarded with token, notification silent, no-token client gets the re-pair hint. M4 1/5. Commit (see session log)
-- [ ] M4-2 Terminal-Claude e2e: `claude mcp add` + guarded click through approval card
+- [x] M4-2 Terminal-Claude e2e: `claude mcp add` + guarded click through approval card — done. `tests/e2e/terminal-claude.smoke.test.ts` (gated `JUNIOR_E2E_TERMINAL_CLAUDE=1`): the REAL CLI 2.1.310 registers the harness bridge (`claude mcp add --transport http junior_browser <url>/mcp --header "Authorization: Bearer …" --scope local`), `claude mcp list` shows ✔ Connected, then terminal Claude drives `get_active_tab` → `read_page outline` → `click` (target "4" from the outline) → `read_page text` on the bank fixture — `sensitive_site` mirror card raised, scripted "once", click executes, model reports banner `Signed in attempt recorded`, zero `permission_denials`. Harness gains `readonly token` for out-of-process /mcp clients. Docs: `docs/terminal-claude.md` (+ tests/README); forks → decisions.md (server name `junior_browser` per CLAUDE.md convention; harness-based smoke instead of live github.com). Gates: typecheck/test/build/lint/format green (4 harness tests pass, smoke skips hermetically; 1 gated test). **M4 2/5 → M4-3 next.** Commit 7e30d08
 - [ ] M4-3 API engine agent mode (tools → dispatcher, maxSteps)
 - [ ] M4-4 CLI engine: spawn, mcp-config loopback, `--resume` session map, stream→UI parts mapping
 - [ ] M4-5 Kill/crash mid-task: overlay clears, futures resolve denied
@@ -251,6 +251,15 @@
 - [mcp] Bin autostart guard: filename `endsWith("stdio-proxy")` silently never matches `stdio-proxy.js` — the whole bin no-ops with exit 0. Use `import.meta.url === pathToFileURL(process.argv[1]).href` and cover it with a spawn test.
 - [security] Live proof of §4.4 through MCP: `tools/call navigate` in ask mode surfaces an APPROVAL queue item (`new_site`) — answer `approval-response {decision:"once"}` then the action item arrives; unanswered → 120 s `BLOCKED_BY_POLICY` default-deny returned as an `isError` tool result. M4-2's acceptance is one `claude mcp add` away from this curl rehearsal.
 
+### 2026-10-24 (M4-2 terminal-Claude e2e session — Claude Code 2.1.310)
+- [cli] `claude mcp add --transport http <name> <url> --header "Authorization: Bearer <token>"` verified on 2.1.310. **Scope matters headless**: `--scope project` (.mcp.json) servers sit "⏸ Pending approval (run `claude` to approve)" — a `-p` run never sees the tools; `--scope local` (default) works immediately and `claude mcp list` health-checks to "✔ Connected". Header is stored in PLAINTEXT in the chosen config file.
+- [cli] **`--allowedTools "mcp__server:*"` wildcard is NOT honored in 2.1.310** — tools land in the result's `permission_denials` and the model ends its turn asking for permission. The server-wide form `--allowedTools "mcp__server"` approves all of the server's tools (probed live: 0 denials). M0-3's `:*` combo was verified for `init.tools:[]`, not for pre-approval.
+- [cli] `-p --output-format stream-json` result event carries `permission_denials[]` — the cheap way to assert pre-approval worked; `assistant` events carry `message.content[].tool_use.name/input` for the transcript.
+- [cli] `claude mcp list`'s health check hits only initialize/tools-list — no `tools/call`, so the 30/min rate limit on tool calls never sees it.
+- [cli] Tool naming confirmed end-to-end: server name `junior_browser` → `mcp__junior_browser__get_active_tab/read_page/click` exactly as the CLAUDE.md convention requires (M4-1 backlog "tool_use naming check" resolves here).
+- [vitest] The default reporter suppresses console.log from PASSING tests (it prints them only for failures) — run with `--disableConsoleIntercept` to capture transcript evidence from a green run.
+- [harness] The M4-2 smoke reuses the M3-5 harness wholesale: real bridge source + real AgentLoop + FakeTab already expose everything an out-of-process MCP client needs; only addition was exposing the harness `token`.
+
 
 ### 2026-10-23 (M3-3 approvals + Port routing session — wxt@0.21.4, vitest@5.0.5)
 
@@ -275,7 +284,7 @@
 
 > Ideas discovered mid-work land here (protocol: CLAUDE.md). Never into the current diff.
 
-- (from post-M0 review 2026-10-23) ~~Early M4-1 probe: verify a *reachable* MCP loopback with the token in headers~~ **RESOLVED M4-1 (2026-10-24):** live acceptance did exactly this — initialize/tools-list/tools-call over `http://127.0.0.1:8620/mcp` with `Authorization: Bearer`, plus an SDK-Client test; `tool_use` naming check remains for M4-2.
+- (from post-M0 review 2026-10-23) ~~Early M4-1 probe: verify a *reachable* MCP loopback with the token in headers~~ **RESOLVED M4-1 (2026-10-24):** live acceptance did exactly this — initialize/tools-list/tools-call over `http://127.0.0.1:8620/mcp` with `Authorization: Bearer`, plus an SDK-Client test; ~~`tool_use` naming check remains for M4-2~~ **naming check RESOLVED M4-2 (2026-10-24):** terminal Claude addressed the catalog as `mcp__junior_browser__*` (server-wide `--allowedTools` pre-approval), asserted in the smoke test.
 - (from post-M0 review 2026-10-23) M2 must not assume the OpenAI-compatible happy path: mock doesn't cover in-stream error frames on HTTP 200 (OpenRouter's documented failure mode), reasoning-token deltas, slashed routing model names. Revisit when M2-3 wires the fallback chain.
 - (from M1-1, 2026-10-23) **M2-1 must pin the extension id** (manifest `key` field) and then tighten `isAllowedOrigin` in `apps/bridge/src/auth.ts` from the `chrome-extension://[a-p]{32}` wildcard to the exact id (decisions.md 2026-10-23 — wildcard is safe only because every data route still demands the token).
 - (from M1-1, 2026-10-23) ~~§4.2's "rate-limit POST /mcp" is implemented as rate-limit.ts but NOT yet mounted~~ **RESOLVED M4-1 (2026-10-24):** mounted on /mcp, 30/min burst, `tools/call` only (decisions.md).
@@ -312,3 +321,4 @@
 - 2026-10-24 · M3-4 · work overlay green: unlisted-script overlay.js injected on demand (manifest stays clean — decisions.md), thin border + Pause/Resume in closed shadow root with isTrusted interception, SW WorkOverlayController behind the content-script firewall, AgentLoop local pause (stops polling, in-flight items answered denied:paused) + panel status chip; 35 new ext tests (211 ext, 502 total) + full gates + LIVE wire acceptance (pause mid-action → bridge future denied:paused, resume → executes); plan §5.2 item 6 + tree updated · e80e361, 5ec3371
 - 2026-10-24 · M3-5 · fake-model harness green: tests/ workspace package (decisions.md — script→vitest suite) — real bridge (source, ephemeral port) + real AgentLoop/executors vs jsdom fake-tab with per-origin global stamping; every action kind + secret-field refusal (auto+ask) + policy denials on fixtures/page.html + the M3 acceptance sensitive flow on chase.com (wire card → once, mirror card → once, site grant → silent, secret refused); 4 harness tests (506 total) + full gates; plan §8 M3-5 annotated; **M3 complete 5/5 → M4-1 next** · d7f1144
 - 2026-10-24 · M4-1 · MCP server + stdio proxy green: stateless JSON-mode streamable HTTP at /mcp (decisions.md ×3), §4.6 catalog over the dispatcher (same guard/cards as the panel), rate-limit mounted on tools/call, junior-mcp bin (token + one config source); 15 new bridge tests incl. SDK-Client + bin-spawn (531 total) + full gates + LIVE acceptance (guarded navigate through a real approval card, 120 s default-deny, real bin over stdio); plan §3 table updated; **M4 1/5 → M4-2 next** · ba468f0
+- 2026-10-24 · M4-2 · terminal-Claude e2e green: real CLI 2.1.310 `claude mcp add` → ✔ Connected → guarded click on bank fixture through a sensitive_site approval card (get_active_tab → read_page → click "4" → model reports banner), zero permission denials; smoke gated JUNIOR_E2E_TERMINAL_CLAUDE=1, docs/terminal-claude.md + decisions.md + plan §8 updated, allowedTools/scope learnings recorded; full gates green (4 harness + 531+ tests); **M4 2/5 → M4-3 next** · 7e30d08
