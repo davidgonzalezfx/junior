@@ -80,6 +80,22 @@ describe("buildPickerGroups", () => {
   it("no recent entries → no Recent group", () => {
     expect(buildPickerGroups(STATUS, []).map((g) => g.id)).not.toContain("recent");
   });
+
+  it("an available provider with no catalog (pre-Test) contributes no group (M5-6)", () => {
+    const pre: BridgeStatus = {
+      ...STATUS,
+      providers: [
+        {
+          id: "openrouter",
+          kind: "openai-compatible",
+          label: "OpenRouter",
+          available: true,
+          models: [],
+        },
+      ],
+    };
+    expect(buildPickerGroups(pre, [])).toEqual([]);
+  });
 });
 
 describe("picker value encoding", () => {

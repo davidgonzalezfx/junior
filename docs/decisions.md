@@ -363,3 +363,21 @@ and the session restore (which must render enough to anchor scroll position), fo
 don't need: the 200-session trim + the 20k tool-output sanitize (M5-2) bound a session's rendered
 size. `virtua` stays a backlog seed if real-world sessions grow past what memoization covers.
 Affects: `apps/extension/src/components/chat-panel.tsx`, plan §5.1 tree + §5.3 message-list bullet.
+
+## 2026-10-25 · Model catalogs persist via `POST /api/config/test`; patch keeps absent `models` (M5-6)
+
+Context: M5-5's real-Chrome pass found OpenAI-compatible providers never got a catalog — `models?` existed
+in the config schema with a comment saying "fetched from /models when omitted", but nothing ever fetched
+it; Settings Save omitted `models` from the PUT patch; the Test button's fetched list (e.g. 467 OpenRouter
+ids) was displayed and discarded. Options: (a) fetch catalogs lazily in `/api/status`; (b) extension Save
+sends models; (c) persist the catalog bridge-side when the Test button fetches it. Choice: **(c)** — the
+Test button is already the only thing that fetches `{baseUrl}/models`, so its result is stored on the
+entry (`withPersistedModels`) and flows out through the existing masked view + `/api/status` with zero new
+wire shapes; a lazy `/api/status` fetch would add a 10 s network stall to the picker's bootstrap route.
+Two supporting semantics: PUT patches treat absent `models` like absent `apiKey` (keep existing; explicit
+array replaces, `[]` clears) so a stale Settings draft can't wipe a persisted catalog; and
+`resolveChatTarget` skips providers with no resolvable model instead of emitting `model: ""` (an empty
+string would 400 at the bridge). Anthropic stays on the UI-side well-known fallback list — persisting its
+catalog too would need a `ProvidersConfigSchema` field for no user-visible gain. Affects:
+`apps/bridge/src/providers.ts`, `apps/extension/src/lib/chat.ts`, plan §4.1 + §5.3, protocol `config.ts`
+comment only.

@@ -7,7 +7,9 @@ export const OpenAICompatibleProviderConfigSchema = z.object({
   label: z.string(),
   baseUrl: z.string(),
   apiKey: z.string(),
-  models: z.array(z.string()).optional(), // fetched from /models when omitted
+  // Catalog persisted by POST /api/config/test (M5-6) — the only place that fetches
+  // {baseUrl}/models; absent until the first successful "Test" in Settings.
+  models: z.array(z.string()).optional(),
 });
 
 export type OpenAICompatibleProviderConfig = z.infer<typeof OpenAICompatibleProviderConfigSchema>;

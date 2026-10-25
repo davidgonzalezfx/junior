@@ -54,16 +54,46 @@ describe("resolveChatTarget", () => {
     expect(target).toEqual({ providerId: "anthropic", model: "claude-sonnet-5-5" }); // anthropic fallback head
   });
 
-  it("excludes claude-cli (engine api 501s until M4-4) and unavailable providers", () => {
+  it("skips a catalog-less provider (no resolvable model) and falls through to one that has models", () => {
     const target = resolveChatTarget(
       null,
       status([
         provider("claude-cli", "claude-cli"),
         provider("anthropic", "anthropic", false),
-        provider("openrouter", "openai-compatible", true, []),
+        provider("catalogless", "openai-compatible", true, []),
+        provider("openrouter", "openai-compatible", true, ["vendor/model-x"]),
       ]),
     );
-    expect(target).toEqual({ providerId: "openrouter", model: "" }); // no catalog → composer free-text
+    expect(target).toEqual({ providerId: "openrouter", model: "vendor/model-x" });
+  });
+
+  it('returns null when the only available providers have no resolvable model — never sends model:""', () => {
+    const target = resolveChatTarget(
+      null,
+      status([
+        provider("claude-cli", "claude-cli"),
+        provider("anthropic", "anthropic", false),
+        provider("openrouter", "openai-compatible", true, []), // no persisted catalog yet
+      ]),
+    );
+    expect(target).toBeNull();
+  });
+
+  it("a catalog-less default provider still resolves once its Test-persisted catalog arrives", () => {
+    const target = resolveChatTarget(
+      { providerId: "openrouter", model: null },
+      status([provider("openrouter", "openai-compatible", true, ["vendor/model-x"])]),
+    );
+    expect(target).toEqual({ providerId: "openrouter", model: "vendor/model-x" });
+  });
+
+  it("excludes claude-cli and unavailable providers from resolution entirely", () => {
+    expect(
+      resolveChatTarget(
+        null,
+        status([provider("claude-cli", "claude-cli"), provider("anthropic", "anthropic", false)]),
+      ),
+    ).toBeNull();
   });
 
   it("returns null when nothing is chat-capable — the UI shows the setup hint", () => {
@@ -76,11 +106,12 @@ describe("modelsFor", () => {
   it("passes a fetched catalog through", () => {
     expect(modelsFor(provider("p", "openai-compatible", true, ["a", "b"]))).toEqual(["a", "b"]);
   });
-  it("falls back to well-known anthropic ids until M2-4 fetches the catalog", () => {
+  it("falls back to well-known anthropic ids; openai-compatible without a catalog yields none", () => {
     expect(modelsFor(provider("anthropic", "anthropic"))).toEqual([
       "claude-sonnet-5-5",
       "claude-haiku-5-5",
       "claude-opus-5-5",
     ]);
+    expect(modelsFor(provider("openrouter", "openai-compatible"))).toEqual([]);
   });
 });

@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { JuniorConfigSchema, ProvidersViewSchema } from "@junior/protocol";
 import { createApp } from "./index.js";
 import { saveConfig, writeToken } from "./config.js";
-import { applyProvidersPatch, maskKey, toProvidersView } from "./providers.js";
+import { applyProvidersPatch, maskKey, toProvidersView, withPersistedModels } from "./providers.js";
 
 const TOKEN = "c".repeat(64);
 let dirs: string[] = [];
@@ -104,6 +104,61 @@ describe("pure helpers", () => {
       anthropicKey: "",
     });
     expect(merged.providers.anthropicKey).toBeUndefined();
+  });
+
+  it("applyProvidersPatch: absent models keep the persisted catalog, explicit array replaces it (M5-6)", () => {
+    const config = JuniorConfigSchema.parse({
+      providers: {
+        openaiCompatible: [
+          {
+            id: "openrouter",
+            label: "OpenRouter",
+            baseUrl: "https://openrouter.ai/api/v1",
+            apiKey: "sk-or",
+            models: ["vendor/old-a", "vendor/old-b"],
+          },
+        ],
+      },
+    });
+    // A stale UI draft (no catalog) must not wipe the persisted one…
+    const kept = applyProvidersPatch(config, {
+      openaiCompatible: [
+        { id: "openrouter", label: "Relabeled", baseUrl: "https://openrouter.ai/api/v1" },
+      ],
+      fallbackChain: [],
+    });
+    expect(kept.providers.openaiCompatible[0]?.models).toEqual(["vendor/old-a", "vendor/old-b"]);
+    // …but an explicit array (re-test / manual edit) replaces it, and [] clears.
+    const replaced = applyProvidersPatch(config, {
+      openaiCompatible: [
+        { id: "openrouter", label: "OpenRouter", baseUrl: "https://x/v1", models: ["vendor/new"] },
+      ],
+      fallbackChain: [],
+    });
+    expect(replaced.providers.openaiCompatible[0]?.models).toEqual(["vendor/new"]);
+    const cleared = applyProvidersPatch(config, {
+      openaiCompatible: [
+        { id: "openrouter", label: "OpenRouter", baseUrl: "https://x/v1", models: [] },
+      ],
+      fallbackChain: [],
+    });
+    expect(cleared.providers.openaiCompatible[0]?.models).toEqual([]);
+  });
+
+  it("withPersistedModels sets the catalog on the matching entry; unknown/anthropic ids are a no-op (M5-6)", () => {
+    const config = JuniorConfigSchema.parse({
+      providers: {
+        openaiCompatible: [
+          { id: "openrouter", label: "OpenRouter", baseUrl: "https://x/v1", apiKey: "k" },
+        ],
+      },
+    });
+    const merged = withPersistedModels(config, "openrouter", ["vendor/model-a"]);
+    expect(merged).not.toBe(config);
+    expect(merged.providers.openaiCompatible[0]?.models).toEqual(["vendor/model-a"]);
+    expect(config.providers.openaiCompatible[0]?.models).toBeUndefined(); // input untouched
+    expect(withPersistedModels(config, "ghost", ["m"])).toBe(config); // same object ⇒ no write
+    expect(withPersistedModels(config, "anthropic", ["m"])).toBe(config);
   });
 });
 
@@ -238,6 +293,72 @@ describe("GET/PUT /api/config + POST /api/config/test (bearer-gated)", () => {
     });
     expect(await test("ghost")).toMatchObject({ ok: false }); // not configured
     expect(await test("anthropic")).toMatchObject({ ok: false }); // no key
+  });
+
+  it("POST /api/config/test persists the fetched catalog to config (M5-6) and the view serves it", async () => {
+    const dir = newDir({
+      providers: {
+        openaiCompatible: [
+          {
+            id: "openrouter",
+            label: "OpenRouter",
+            baseUrl: "https://openrouter.test/api/v1",
+            apiKey: "sk-or",
+          },
+        ],
+      },
+    });
+    const app = newApp(dir, {
+      fetchImpl: (async () =>
+        new Response(JSON.stringify({ data: [{ id: "vendor/model-a" }] }), {
+          status: 200,
+        })) as typeof fetch,
+    });
+    const res = await app.request("/api/config/test", {
+      method: "POST",
+      headers: auth,
+      body: JSON.stringify({ providerId: "openrouter" }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, models: ["vendor/model-a"] });
+
+    // The catalog is on disk (survives a bridge restart)…
+    const onDisk = JuniorConfigSchema.parse(
+      JSON.parse(readFileSync(join(dir, "config.json"), "utf8")),
+    );
+    expect(onDisk.providers.openaiCompatible[0]?.models).toEqual(["vendor/model-a"]);
+    // …and the masked view already carries it back to the Settings draft.
+    const got = await app.request("/api/config", { headers: { Authorization: `Bearer ${TOKEN}` } });
+    expect(
+      ((await got.json()) as { openaiCompatible: Array<{ models?: string[] }> }).openaiCompatible[0]
+        ?.models,
+    ).toEqual(["vendor/model-a"]);
+  });
+
+  it("POST /api/config/test does NOT write when the fetch fails or the id is anthropic/unknown (M5-6)", async () => {
+    const dir = newDir({
+      providers: {
+        anthropicKey: "sk-ant-1234567890abcd",
+        openaiCompatible: [
+          { id: "dead", label: "Dead", baseUrl: "https://dead.test/v1", apiKey: "k" },
+        ],
+      },
+    });
+    const app = newApp(dir, {
+      fetchImpl: (async () => new Response("no", { status: 500 })) as typeof fetch,
+    });
+    for (const providerId of ["dead", "anthropic", "ghost"]) {
+      const res = await app.request("/api/config/test", {
+        method: "POST",
+        headers: auth,
+        body: JSON.stringify({ providerId }),
+      });
+      expect(await res.json()).toMatchObject({ ok: false });
+    }
+    const onDisk = JuniorConfigSchema.parse(
+      JSON.parse(readFileSync(join(dir, "config.json"), "utf8")),
+    );
+    expect(onDisk.providers.openaiCompatible[0]?.models).toBeUndefined();
   });
 
   it("sits behind the bearer gate like every other data route", async () => {

@@ -4,7 +4,8 @@
 // reads config, so the bridge is the single source of truth). GET returns a MASKED view
 // (ProvidersViewSchema is strict — a raw apiKey on the wire fails the parse); PUT takes
 // a patch where absent keys mean "keep what the bridge has", so the UI only ever sends
-// a key the user actually typed.
+// a key the user actually typed. A successful POST /api/config/test also persists the
+// fetched catalog onto the entry (M5-6) so /api/status → ⌘K picker serves real models.
 import { Hono } from "hono";
 import {
   ProvidersPatchSchema,
@@ -41,8 +42,10 @@ export function toProvidersView(config: JuniorConfig): ProvidersView {
 }
 
 /** Pure patch application. Semantics: absent apiKey = keep existing (matched by id,
- * new ids start keyless); "" clears. The merged config is re-validated by
- * JuniorConfigSchema so a bad patch can never hit disk. */
+ * new ids start keyless); "" clears. Same for `models` (M5-6): absent = keep the
+ * persisted catalog, an explicit array replaces it — the UI never re-sends a catalog
+ * it hasn't re-fetched, and a stale draft must not wipe one. The merged config is
+ * re-validated by JuniorConfigSchema so a bad patch can never hit disk. */
 export function applyProvidersPatch(
   config: JuniorConfig,
   patch: ProvidersPatch["providers"],
@@ -54,15 +57,35 @@ export function applyProvidersPatch(
         ? undefined
         : patch.anthropicKey;
   const openaiCompatible = patch.openaiCompatible.map((entry) => {
-    const apiKey =
-      entry.apiKey ??
-      config.providers.openaiCompatible.find((p) => p.id === entry.id)?.apiKey ??
-      "";
-    return { ...entry, apiKey };
+    const existing = config.providers.openaiCompatible.find((p) => p.id === entry.id);
+    const apiKey = entry.apiKey ?? existing?.apiKey ?? "";
+    const models = entry.models ?? existing?.models;
+    return { ...entry, apiKey, ...(models !== undefined ? { models } : {}) };
   });
   return JuniorConfigSchema.parse({
     ...config,
     providers: { anthropicKey, openaiCompatible, fallbackChain: patch.fallbackChain },
+  });
+}
+
+/** Persist a fetched model catalog onto the provider entry (M5-6): the Settings "test"
+ * button is the only thing that ever fetches {baseUrl}/models, so its result is stored
+ * on the openai-compatible entry — GET /api/config serves it (masked view already
+ * carries `models`) and /api/status → buildProviders feeds the ⌘K picker. Anthropic /
+ * unknown ids return the SAME config object (anthropic uses the UI-side well-known
+ * fallback list), so callers can skip the disk write when nothing changed. */
+export function withPersistedModels(
+  config: JuniorConfig,
+  providerId: string,
+  models: string[],
+): JuniorConfig {
+  if (!config.providers.openaiCompatible.some((p) => p.id === providerId)) return config;
+  const openaiCompatible = config.providers.openaiCompatible.map((p) =>
+    p.id === providerId ? { ...p, models } : p,
+  );
+  return JuniorConfigSchema.parse({
+    ...config,
+    providers: { ...config.providers, openaiCompatible },
   });
 }
 
@@ -172,7 +195,17 @@ export function providersRoutes(deps: ProvidersDeps) {
   routes.post("/config/test", async (c) => {
     const body = ProviderTestRequestSchema.safeParse(await c.req.json().catch(() => null));
     if (!body.success) return c.json({ error: "body must be {providerId: string}" }, 400);
-    const result = await testProvider(loadConfig(deps.dir), body.data.providerId, deps.test);
+    const config = loadConfig(deps.dir);
+    const result = await testProvider(config, body.data.providerId, deps.test);
+    // A successful fetch IS the catalog — persist it (M5-6) so /api/status serves
+    // models to the picker without a config round-trip through the UI.
+    if (result.ok) {
+      const merged = withPersistedModels(config, body.data.providerId, result.models);
+      if (merged !== config) {
+        saveConfig(merged, deps.dir);
+        log(`[providers] persisted ${result.models.length} models for "${body.data.providerId}"`);
+      }
+    }
     return c.json(ProviderTestResultSchema.parse(result));
   });
 

@@ -304,7 +304,10 @@ same shape as ModelBridge `mcp_server.py` but **sending the token** from `~/.jun
 
 - Config file `~/.junior/config.json` (schema in `packages/protocol/config.ts`): `port: 8620`,
   `permissionMode: "ask" | "auto" | "none"` (default `ask`), `providers` (anthropic key, openai-compatible
-  list `{id, label, baseUrl, apiKey, models?}`), `codeExecution: "off"` (reserved; not implemented in v1),
+  list `{id, label, baseUrl, apiKey, models?}` — `models` is the catalog persisted by `POST /api/config/test`
+  (M5-6: the test button is the only /models fetch, so the bridge stores its result there and /api/status
+  serves it to the ⌘K picker; a PUT patch that omits `models` keeps the stored catalog, an explicit array
+  replaces it — decisions.md 2026-10-25), `codeExecution: "off"` (reserved; not implemented in v1),
   `maxSteps: 30` (1–100 enforced by `JuniorConfigSchema` — fail-fast, not runtime clamped; see
   `docs/decisions.md`), `cliPath?: string`, `allowCliNativeTools: false`.
 - Token file `~/.junior/token` (0600). On first start, bridge generates 32 random bytes hex
@@ -585,7 +588,10 @@ Responsibilities (stateless-friendly, all state in `chrome.storage.session`/`loc
   - Claude CLI: detected path/version/login status from `/api/status`; toggle `allowCliNativeTools`.
   - OpenAI-compatible: add/edit/delete entries `{label, baseUrl, apiKey}`; per-entry "fetch models"
     (`GET {base}/v1/models`) with inline validation (port Autono `options/options.js:100` but with the
-    `parseBridgeUrl`-style https/loopback check on the base URL).
+    `parseBridgeUrl`-style https/loopback check on the base URL). A successful fetch is persisted onto the
+    entry in `config.json` by the bridge (M5-6 — decisions.md 2026-10-25), so `/api/status` → ⌘K picker
+    serve the catalog without another config round-trip; anthropic keeps the UI-side well-known fallback
+    list instead.
   - Default provider + model + fallback chain (↑/↓ buttons to reorder — decisions.md 2026-10-23).
   - Agent & Security: permission mode radio (`ask`/`auto`/`none`) with the matrix rendered as a table,
     maxSteps slider, pairing status + "Re-pair" button.

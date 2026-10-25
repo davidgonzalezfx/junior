@@ -14,7 +14,8 @@ export interface ChatTarget {
   model: string;
 }
 
-/** Well-known stand-in until /api/status serves model catalogs (M2-4 fetches them). */
+/** Well-known stand-ins when the anthropic catalog is empty; openai-compatible
+ * providers get a real catalog once Settings "Test" persists it (M5-6). */
 export const ANTHROPIC_FALLBACK_MODELS = [
   "claude-sonnet-5-5",
   "claude-haiku-5-5",
@@ -27,9 +28,12 @@ export function modelsFor(provider: ProviderStatus): string[] {
   return provider.kind === "anthropic" ? ANTHROPIC_FALLBACK_MODELS : [];
 }
 
-/** Resolve what a plain chat sends to. Engine `api` only for M2-3, so claude-cli is
- * excluded (it would need the cli engine — 501 until M4-4). Null ⇒ the UI shows the
- * "no provider configured" state instead of a composer that can only fail. */
+/** Resolve what a plain chat sends to. Panel chat always uses engine "api", so
+ * claude-cli is excluded (the CLI engine is reached via terminal Claude / the bridge's
+ * cli path — offering it here is a recorded backlog seed). Providers with no
+ * resolvable model (no persisted catalog, no fallback) are SKIPPED — an empty model
+ * string would 400 at the bridge. Null ⇒ the UI shows the "no provider configured"
+ * state instead of a composer that can only fail. */
 export function resolveChatTarget(
   defaultProvider: DefaultProvider | null,
   status: BridgeStatus,
@@ -39,15 +43,19 @@ export function resolveChatTarget(
     defaultProvider === null
       ? undefined
       : available.find((p) => p.id === defaultProvider.providerId);
-  const provider = preferred ?? available[0];
-  if (provider === undefined) return null;
+  const ordered =
+    preferred === undefined ? available : [preferred, ...available.filter((p) => p !== preferred)];
 
-  const storedModel =
-    defaultProvider !== null && defaultProvider.providerId === provider.id
-      ? defaultProvider.model
-      : null;
-  const model = storedModel ?? modelsFor(provider)[0] ?? "";
-  return { providerId: provider.id, model };
+  for (const provider of ordered) {
+    const storedModel =
+      defaultProvider !== null && defaultProvider.providerId === provider.id
+        ? defaultProvider.model
+        : null;
+    const model = storedModel ?? modelsFor(provider)[0];
+    if (!model) continue; // undefined/"" — no resolvable model, try the next candidate
+    return { providerId: provider.id, model };
+  }
+  return null;
 }
 
 /** Transport per (bridgeUrl, token, target, agentMode) — useChat re-creates its
