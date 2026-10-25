@@ -4,7 +4,7 @@
 // flow back through onRecord for the debounced history write. M4-3: an Agent toggle
 // (agentMode:true → bridge registers its browser tools). M5-1: tool-call cards,
 // reasoning collapse, usage chips, empty/error/loading states.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import type { UIMessage } from "ai";
 import { BridgeUnreachableError, fetchStatus } from "@/lib/bridge-client";
@@ -215,48 +215,11 @@ function Chat({
         {messages.length === 0 ? (
           <ChatEmptyState onPick={setDraft} />
         ) : (
+          // M5-4 perf: rows are memoized on message identity — a streaming delta
+          // replaces only the last message object, so the other 999 rows of a
+          // 1k-message session skip their markdown re-parse (see chat-panel.perf).
           messages.map((message) => (
-            <div
-              key={message.id}
-              className={
-                message.role === "user"
-                  ? "my-2 ml-8 rounded-lg bg-secondary px-3 py-2 text-sm"
-                  : "my-2 mr-2 px-1 text-sm"
-              }
-            >
-              {message.parts.map((part, i) => {
-                // Server-side tools arrive as tool parts (v7): streamText's static
-                // tools render as `tool-<name>` part types (dynamic:false on the
-                // wire), client-unknown ones as `dynamic-tool` with a toolName
-                // field. Both render as collapsible cards (M5-1).
-                if (isToolPart(part) && isToolPartView(part)) {
-                  const name =
-                    part.type === "dynamic-tool"
-                      ? (((part as { toolName?: unknown }).toolName as string | undefined) ??
-                        "tool")
-                      : part.type.slice("tool-".length);
-                  return (
-                    <ToolCallCard
-                      key={i}
-                      toolName={name}
-                      part={part}
-                      durationMs={durations(part.toolCallId)}
-                    />
-                  );
-                }
-                if (part.type === "reasoning") {
-                  return (
-                    <ReasoningBlock
-                      key={i}
-                      text={part.text}
-                      streaming={part.state === "streaming"}
-                    />
-                  );
-                }
-                return part.type === "text" ? <MarkdownContent key={i} text={part.text} /> : null;
-              })}
-              {message.role === "assistant" ? <UsageChip metadata={message.metadata} /> : null}
-            </div>
+            <MessageRow key={message.id} message={message} durations={durations} />
           ))
         )}
         {status === "submitted" ? (
@@ -309,9 +272,57 @@ function Chat({
   );
 }
 
+/** One transcript row (M5-4 extraction): memoized on message identity — useChat
+ * replaces only the last message object per delta, so untouched rows never
+ * re-render (their markdown would otherwise re-parse every streamed chunk). */
+const MessageRow = memo(function MessageRow({
+  message,
+  durations,
+}: {
+  message: JuniorUIMessage;
+  durations: (toolCallId: string) => number | null;
+}) {
+  return (
+    <div
+      className={
+        message.role === "user"
+          ? "my-2 ml-8 rounded-lg bg-secondary px-3 py-2 text-sm"
+          : "my-2 mr-2 px-1 text-sm"
+      }
+    >
+      {message.parts.map((part, i) => {
+        // Server-side tools arrive as tool parts (v7): streamText's static
+        // tools render as `tool-<name>` part types (dynamic:false on the
+        // wire), client-unknown ones as `dynamic-tool` with a toolName
+        // field. Both render as collapsible cards (M5-1).
+        if (isToolPart(part) && isToolPartView(part)) {
+          const name =
+            part.type === "dynamic-tool"
+              ? (((part as { toolName?: unknown }).toolName as string | undefined) ?? "tool")
+              : part.type.slice("tool-".length);
+          return (
+            <ToolCallCard
+              key={i}
+              toolName={name}
+              part={part}
+              durationMs={durations(part.toolCallId)}
+            />
+          );
+        }
+        if (part.type === "reasoning") {
+          return <ReasoningBlock key={i} text={part.text} streaming={part.state === "streaming"} />;
+        }
+        return part.type === "text" ? <MarkdownContent key={i} text={part.text} /> : null;
+      })}
+      {message.role === "assistant" ? <UsageChip metadata={message.metadata} /> : null}
+    </div>
+  );
+});
+
 /** Client-measured tool durations (plan §5.3 card fields): first observation of a
  * toolCallId starts the clock; its output-available/output-error render stops it.
- * Purely in-memory — restored sessions show no duration rather than a wrong one. */
+ * Purely in-memory — restored sessions show no duration rather than a wrong one.
+ * The returned callback is stable (refs only) so memoized rows keep working. */
 function useToolDurations(messages: JuniorUIMessage[]): (toolCallId: string) => number | null {
   const starts = useRef(new Map<string, number>());
   const durations = useRef(new Map<string, number>());
@@ -332,5 +343,5 @@ function useToolDurations(messages: JuniorUIMessage[]): (toolCallId: string) => 
     }
   }, [messages]);
 
-  return (toolCallId) => durations.current.get(toolCallId) ?? null;
+  return useCallback((toolCallId) => durations.current.get(toolCallId) ?? null, []);
 }

@@ -2,11 +2,14 @@
 // runner's read_page routing, and the REAL vendored buildDomTree.js evaluated in
 // jsdom with stubbed layout — outline/interactive output, __junior_dom_map
 // population, URL invalidation, and resolver integration (click "[1]" via map).
+// (424 lines — over the ~400 budget: one jsdom+layout-stub harness serves the
+// unit tests, the M5-3 fuzz block, and the M5-4 size audit; splitting any group
+// out would duplicate the stubs rather than simplify.)
 /** @vitest-environment jsdom */
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { BrowserActionSchema, type BrowserAction, type PermissionMode } from "@junior/protocol";
 import { executeAction, type ExecutorEnv } from "./index";
 import { juniorActionInPage } from "./in-page";
@@ -16,6 +19,14 @@ const VENDOR_PATH = join(
   dirname(fileURLToPath(import.meta.url)),
   "../../../public/vendor/buildDomTree.js",
 );
+
+// M5-4 audit: the plan §9 fixture page, body-extracted for jsdom injection.
+const FIXTURE_PAGE_PATH = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "../../../../../tests/fixtures/page.html",
+);
+const pageFixtureHtml =
+  readFileSync(FIXTURE_PAGE_PATH, "utf8").match(/<body>([\s\S]*)<\/body>/)?.[1] ?? "";
 
 // ── jsdom layout stubs (M3-1 pattern, extended for buildDomTree's machinery):
 // distinct y-stacked rects per element so document.elementFromPoint can resolve
@@ -323,5 +334,94 @@ describe("vendored buildDomTree.js (real file, jsdom)", () => {
     buildDomTreeFn()({ mode: "outline", maxChars: 8000 });
     const healed = await juniorActionInPage({ op: "click", target: "[0]", expect: null });
     expect(healed.ok).toBe(true);
+  });
+});
+
+// ── M5-4 DOM dump size audit (plan §8 M5-4: "outline ≤ 4k chars typical") ────
+// The outline's token cost is what the model pays per read; these tests pin the
+// typical-page budget and the worst-case bound. Measured sizes are logged for
+// docs/qa.md.
+
+/** A representative marketing/landing page: nav, hero, pricing cards, a signup
+ * form, footer — ~90 interactive elements, plenty of non-interactive prose. */
+function typicalLandingPage(): string {
+  const links = (n: number, prefix: string) =>
+    Array.from({ length: n }, (_, i) => `<a href="#${prefix}-${i}">${prefix} link ${i}</a>`).join(
+      "",
+    );
+  const cards = Array.from(
+    { length: 6 },
+    (_, i) =>
+      `<article class="card"><h3>Plan ${i}</h3><p>Feature-rich plan number ${i} for teams of every size.</p>` +
+      `<button>Choose plan ${i}</button><a href="#details-${i}">Learn more</a></article>`,
+  ).join("");
+  return `
+    <nav>${links(12, "nav")}</nav>
+    <header><h1>Acme Product</h1><p>The best thing since sliced bread, trusted by thousands.</p>
+      <button id="cta">Get started free</button><button id="cta2">Talk to sales</button></header>
+    <main><section class="pricing">${cards}</section>
+      <form><label>Name<input></label><label>Email<input type="email"></label>
+        <select><option>Team</option><option>Solo</option></select>
+        <textarea></textarea><button type="submit">Sign up</button></form>
+      <p>${"Prose paragraph. ".repeat(40)}</p></main>
+    <footer>${links(15, "footer")}</footer>
+  `;
+}
+
+describe("M5-4 DOM dump size audit", () => {
+  // Production passes no viewportExpansion (default 0) → the outline is
+  // viewport-scoped. The audit enlarges the stub viewport so the WHOLE page is
+  // measured — the conservative number (a real session re-reads after scrolling).
+  let realWidth: number;
+  let realHeight: number;
+  beforeEach(() => {
+    realWidth = window.innerWidth;
+    realHeight = window.innerHeight;
+    window.innerWidth = 100_000;
+    window.innerHeight = 1_000_000;
+    const win = window as unknown as Record<string, unknown>;
+    delete win.__junior_dom_map;
+    delete win.__junior_dom_map_url;
+    delete win.buildDomTree;
+  });
+  afterEach(() => {
+    window.innerWidth = realWidth;
+    window.innerHeight = realHeight;
+  });
+
+  it("plan fixture page: outline lands far under the 4k typical budget", () => {
+    document.body.innerHTML = pageFixtureHtml;
+    stubLayout();
+    loadVendoredBuildDomTree();
+    const out = buildDomTreeFn()({ mode: "outline", maxChars: 8000 }) as { text: string };
+    console.log(`audit: outline(fixtures/page.html) = ${out.text.length} chars`);
+    expect(out.text.length).toBeLessThan(4000);
+  });
+
+  it("typical landing page (~90 interactive elements): outline stays ≤ 4k chars", () => {
+    document.body.innerHTML = typicalLandingPage();
+    stubLayout();
+    loadVendoredBuildDomTree();
+    const out = buildDomTreeFn()({ mode: "outline", maxChars: 8000 }) as { text: string };
+    console.log(`audit: outline(typical landing) = ${out.text.length} chars`);
+    expect(out.text.length).toBeLessThanOrEqual(4000);
+  });
+
+  it("worst case is bounded: a 1500-element page caps at maxChars with a note", () => {
+    // Generated page — way past "typical" — exists to pin the hard cap, not the budget.
+    document.body.innerHTML = Array.from(
+      { length: 500 },
+      (_, i) =>
+        `<div class="row"><a href="#r${i}">row link ${i}</a><button>act ${i}</button>` +
+        `<input aria-label="field ${i}"><span>${"text ".repeat(5)}</span></div>`,
+    ).join("");
+    stubLayout();
+    loadVendoredBuildDomTree();
+    const out = buildDomTreeFn()({ mode: "outline", maxChars: 8000 }) as { text: string };
+    console.log(`audit: outline(1500-element stress page) = ${out.text.length} chars (capped)`);
+    // The vendored cap truncates at maxChars and APPENDS the note (vendored
+    // juniorCompact) — bounded by maxChars + note, never unbounded.
+    expect(out.text.length).toBeLessThanOrEqual(8100);
+    expect(out.text).toContain("[truncated at 8000 chars");
   });
 });
