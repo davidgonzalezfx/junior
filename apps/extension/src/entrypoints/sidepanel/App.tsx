@@ -25,6 +25,7 @@ import {
   type StoredSession,
 } from "@/lib/history";
 import { isOnboarded } from "@/lib/settings";
+import { runStorageMigrations } from "@/lib/storage-migrations";
 
 type View = "loading" | "onboarding" | "chat" | "history" | "providers";
 
@@ -57,8 +58,14 @@ export default function App() {
   }, []);
 
   // Restore the last active session on open; fall back to the newest, else fresh.
+  // Storage migrations (M5-2) run first — the restore must read migrated data.
   useEffect(() => {
     void (async () => {
+      try {
+        await runStorageMigrations();
+      } catch (error) {
+        console.error("junior: storage migrations failed", error); // loader filters what it can't parse
+      }
       const [sessions, activeId] = await Promise.all([loadSessions(), getActiveSessionId()]);
       const restored = sessions.find((s) => s.id === activeId) ?? sessions[0] ?? emptySession();
       sessionRef.current = restored;

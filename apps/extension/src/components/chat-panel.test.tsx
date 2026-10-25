@@ -236,6 +236,39 @@ describe("ChatPanel", () => {
     });
   });
 
+  it("M5-2: persisted recents load into the palette and stale entries are pruned", async () => {
+    await browser.storage.local.set({
+      junior_bridge_token: "t".repeat(64),
+      junior_default_provider: { providerId: "openrouter", model: "vendor/model-x" },
+      junior_recent_models: [
+        { providerId: "openrouter", model: "vendor/model-y" }, // still in the catalog
+        { providerId: "removed-provider", model: "m" }, // provider gone → pruned
+        { providerId: "openrouter", model: "vendor/model-gone" }, // model gone → pruned
+      ],
+    });
+    vi.stubGlobal("fetch", stubFetch());
+
+    render(<ChatPanel session={emptySession()} onRecord={vi.fn()} />);
+    await screen.findByLabelText("message");
+    fireEvent.click(screen.getByLabelText("Change model (⌘K)"));
+    await screen.findByRole("listbox");
+
+    // The Recent group carries the surviving entry; it also stays in its provider
+    // group — so model-y appears exactly twice, and the stale entries nowhere.
+    expect(screen.getByText("Recent")).toBeTruthy();
+    expect(screen.getAllByRole("option", { name: /vendor\/model-y/ })).toHaveLength(2);
+    expect(screen.queryByRole("option", { name: /vendor\/model-gone/ })).toBeNull();
+    expect(screen.queryByRole("option", { name: /^m$/ })).toBeNull();
+
+    // The pruned list is persisted back.
+    await waitFor(async () => {
+      const stored = await browser.storage.local.get("junior_recent_models");
+      expect(stored.junior_recent_models).toEqual([
+        { providerId: "openrouter", model: "vendor/model-y" },
+      ]);
+    });
+  });
+
   it("M4-3: the Agent toggle sends agentMode:true on the next send (and off removes it)", async () => {
     await browser.storage.local.set({
       junior_bridge_token: "t".repeat(64),

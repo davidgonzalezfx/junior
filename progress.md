@@ -5,7 +5,7 @@
 
 **Updated:** 2026-10-24
 **Current milestone:** M5 Polish + hardening (1/5)
-**Current task:** none claimed (**next up: M5-2** per plan §8: storage migrations + trimming; picker recents; onboarding polish)
+**Current task:** M5-2 — storage migrations + trimming; picker recents; onboarding polish (session 2026-10-24)
 **Current blockers:** none
 
 ---

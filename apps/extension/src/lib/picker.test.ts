@@ -5,6 +5,7 @@ import {
   buildPickerGroups,
   decodePickerValue,
   encodePickerValue,
+  pruneRecentModels,
   validateBaseUrl,
 } from "@/lib/picker";
 
@@ -120,5 +121,27 @@ describe("validateBaseUrl (plan §5.3 parseBridgeUrl-style check)", () => {
     expect(validateBaseUrl("not a url").ok).toBe(false);
     expect(validateBaseUrl("ftp://x/v1").ok).toBe(false);
     expect(validateBaseUrl("javascript:alert(1)").ok).toBe(false);
+  });
+});
+
+describe("pruneRecentModels (M5-2)", () => {
+  const recent = [
+    { providerId: "anthropic", model: "claude-sonnet-5-5" },
+    { providerId: "openrouter", model: "vendor/model-x" },
+    { providerId: "removed-provider", model: "m" }, // provider gone from config
+    { providerId: "openrouter", model: "vendor/model-gone" }, // model dropped
+    { providerId: "dead", model: "m" }, // present but unavailable — an outage, kept
+  ];
+
+  it("keeps entries the catalog knows (incl. temporarily unavailable providers)", () => {
+    expect(pruneRecentModels(recent, STATUS)).toEqual([
+      { providerId: "anthropic", model: "claude-sonnet-5-5" },
+      { providerId: "openrouter", model: "vendor/model-x" },
+      { providerId: "dead", model: "m" },
+    ]);
+  });
+
+  it("keeps nothing when the status has no providers", () => {
+    expect(pruneRecentModels(recent, { ...STATUS, providers: [] })).toEqual([]);
   });
 });

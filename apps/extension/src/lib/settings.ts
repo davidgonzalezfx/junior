@@ -111,3 +111,8 @@ export async function addRecentModel(entry: RecentModel): Promise<RecentModel[]>
   await browser.storage.local.set({ [RECENT_MODELS_KEY]: next });
   return next;
 }
+
+/** Overwrite the stored list (M5-2: ChatPanel persists pruned recents on load). */
+export async function saveRecentModels(list: RecentModel[]): Promise<void> {
+  await browser.storage.local.set({ [RECENT_MODELS_KEY]: list });
+}

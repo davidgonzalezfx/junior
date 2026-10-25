@@ -15,6 +15,7 @@ import {
 import { addSiteGrant, clearSiteGrants, getSiteGrants, grantCovers } from "@/lib/site-grants";
 import { ensureToken, pairWithBridge } from "@/lib/pairing";
 import { getToken, loadSettings, saveSettings } from "@/lib/settings";
+import { runStorageMigrations } from "@/lib/storage-migrations";
 
 export default defineBackground(() => {
   // MV3 wires nothing automatically: the toolbar icon opens the side panel via API.
@@ -28,6 +29,7 @@ export default defineBackground(() => {
 
   /** §5.2 item 1: token + settings mirror + best-effort pairing. Idempotent, safe to rerun. */
   const pairIfNeeded = async (why: string) => {
+    await runStorageMigrations().catch(() => null); // M5-2: SW wake also migrates storage
     await ensureToken();
     await saveSettings({}); // materialize §4.1 defaults (bridgeUrl, permissionMode, …)
     const outcome = await pairWithBridge();

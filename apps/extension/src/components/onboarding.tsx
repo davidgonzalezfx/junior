@@ -1,7 +1,7 @@
 // Onboarding (plan §5.3, first run): 1) install the bridge, 2) pair (automatic),
 // 3) pick a provider from /api/status. Skippable at every step — the status bar keeps
 // nudging afterwards. Provider selection seeds `junior_default_provider` for M2-4.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { BridgeStatus } from "@junior/protocol";
 import { Button } from "@/components/ui/button";
 import { CopyCommand } from "@/components/copy-command";
@@ -12,8 +12,29 @@ import { loadSettings, setDefaultProvider, setOnboarded } from "@/lib/settings";
 const SERVE_COMMAND = "junior-bridge serve";
 const PAIR_COMMAND = "junior-bridge pair";
 
+const STEPS = ["bridge", "pair", "provider"] as const;
+type Step = (typeof STEPS)[number];
+
+/** Progress dots — where in the 3-step flow the user is. */
+function StepDots({ current }: { current: Step }) {
+  return (
+    <ol
+      aria-label={`Step ${STEPS.indexOf(current) + 1} of ${STEPS.length}`}
+      className="flex items-center gap-1.5"
+    >
+      {STEPS.map((step) => (
+        <li
+          key={step}
+          aria-current={step === current ? "step" : undefined}
+          className={`h-1.5 w-6 rounded-full ${step === current ? "bg-primary" : "bg-muted"}`}
+        />
+      ))}
+    </ol>
+  );
+}
+
 export function Onboarding({ onDone }: { onDone: () => void }) {
-  const [step, setStep] = useState<"bridge" | "pair" | "provider">("bridge");
+  const [step, setStep] = useState<Step>("bridge");
 
   const finish = useCallback(() => {
     void setOnboarded(true).then(onDone);
@@ -27,6 +48,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
           Skip for now
         </Button>
       </div>
+      <StepDots current={step} />
       {step === "bridge" && (
         <BridgeStep onReady={() => setStep("pair")} onSkip={() => setStep("pair")} />
       )}
@@ -36,11 +58,13 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   );
 }
 
-// --- step 1: bridge reachable -------------------------------------------------
+// --- step 1: bridge reachable ---------------------------------------------------
 
 function BridgeStep({ onReady, onSkip }: { onReady: () => void; onSkip: () => void }) {
   const [checking, setChecking] = useState(false);
   const [down, setDown] = useState(false);
+  // Auto-check on mount (M5-2 polish): if the bridge is already up, step 1 is silent.
+  const autoChecked = useRef(false);
 
   const check = useCallback(async () => {
     setChecking(true);
@@ -55,6 +79,12 @@ function BridgeStep({ onReady, onSkip }: { onReady: () => void; onSkip: () => vo
       setChecking(false);
     }
   }, [onReady]);
+
+  useEffect(() => {
+    if (autoChecked.current) return;
+    autoChecked.current = true;
+    void check();
+  }, [check]);
 
   return (
     <section className="flex flex-col gap-3">

@@ -18,10 +18,13 @@ import type { StoredSession } from "@/lib/history";
 import {
   addRecentModel,
   getDefaultProvider,
+  getRecentModels,
   getToken,
   loadSettings,
+  saveRecentModels,
   setDefaultProvider,
 } from "@/lib/settings";
+import { pruneRecentModels } from "@/lib/picker";
 import type { RecentModel } from "@/lib/settings";
 import type { BridgeStatus } from "@junior/protocol";
 import { MarkdownContent } from "@/components/markdown";
@@ -68,7 +71,12 @@ export function ChatPanel({ session, onRecord }: ChatPanelProps) {
         if (target === null)
           throw new Error("no provider configured — add a key in Settings → Providers");
         if (stale) return;
-        setSetup({ bridgeUrl: settings.bridgeUrl, token, target, status, recent: [] });
+        // M5-2: load the persisted recents (they used to only exist for the current
+        // panel session) and prune entries the catalog no longer knows.
+        const stored = await getRecentModels();
+        const recent = pruneRecentModels(stored, status);
+        if (recent.length !== stored.length) void saveRecentModels(recent);
+        setSetup({ bridgeUrl: settings.bridgeUrl, token, target, status, recent });
         setLoadError(null);
       } catch (error) {
         if (stale) return;

@@ -15,7 +15,9 @@ import {
   loadSessions,
   parseSessions,
   renameSession,
+  sanitizeSessionMessages,
   saveSessions,
+  saveSessionsDroppingOldest,
   searchSessions,
   sessionToMarkdown,
   trimSessions,
@@ -192,5 +194,121 @@ describe("SessionStore (debounced writes)", () => {
     await vi.advanceTimersByTimeAsync(WRITE_DEBOUNCE_MS);
     expect((await loadSessions()).map((s) => s.id)).toEqual(["newest", "old-2"]);
     expect(dropped.map((s) => s.id)).toEqual(["old-1"]);
+  });
+});
+
+// --- M5-2: oversized-output trimming + quota fallback ---------------------------
+
+function assistantWithToolOutput(chars: number): UIMessage {
+  return {
+    id: "a-tool",
+    role: "assistant",
+    parts: [
+      { type: "text", text: "screenshot taken" },
+      {
+        type: "tool-screenshot",
+        toolCallId: "t1",
+        state: "output-available",
+        input: {},
+        output: "x".repeat(chars),
+      } as unknown as UIMessage["parts"][number],
+    ],
+  };
+}
+
+describe("sanitizeSessionMessages (M5-2)", () => {
+  it("replaces oversized tool outputs with a size stub and keeps the rest", () => {
+    const messages = [
+      userMsg("shoot the page"),
+      assistantWithToolOutput(30_000),
+      assistantMsg("done"),
+    ];
+    const [first, tool, last] = sanitizeSessionMessages(messages, 20_000);
+    // The stub REPLACES the output — the size note rides inside `output`.
+    const output = (tool!.parts[1] as { output: { juniorTrimmed: boolean; originalChars: number } })
+      .output;
+    expect(output.juniorTrimmed).toBe(true);
+    expect(output.originalChars).toBe(30_000);
+    expect((first!.parts[0] as { text: string }).text).toBe("shoot the page");
+    expect((tool!.parts[0] as { text: string }).text).toBe("screenshot taken");
+    expect(last!.parts[0]).toEqual({ type: "text", text: "done" });
+  });
+
+  it("leaves small outputs, user messages, and string outputs under the cap intact", () => {
+    const messages = [userMsg("hi"), assistantWithToolOutput(100)];
+    const [first, tool] = sanitizeSessionMessages(messages, 20_000);
+    expect(first).toBe(messages[0]); // same reference — untouched
+    expect((tool!.parts[1] as { output: string }).output).toBe("x".repeat(100));
+  });
+});
+
+describe("saveSessionsDroppingOldest (M5-2 quota fallback)", () => {
+  const list = (ids: [string, number][]) =>
+    ids.map(([id, updatedAt]) => makeSession({ id, updatedAt }));
+
+  it("saves when there is no quota error", async () => {
+    const sessions = list([["a", 1]]);
+    const save = vi.fn(async (_kept: StoredSession[]) => {});
+    await saveSessionsDroppingOldest(sessions, save);
+    expect(save.mock.calls[0]![0].map((s) => s.id)).toEqual(["a"]);
+  });
+
+  it("drops the oldest 20% per retry until the write fits and reports drops", async () => {
+    // 10 sessions, quota allows only the newest 8 (two 20% drops of 2).
+    const fitsAt = 8;
+    const save = vi.fn(async (kept: StoredSession[]) => {
+      if (kept.length > fitsAt) {
+        throw Object.assign(new Error("quota exceeded"), { name: "QuotaExceededError" });
+      }
+    });
+    const dropped: StoredSession[] = [];
+    const sessions = list([
+      ["n1", 10],
+      ["n2", 9],
+      ["n3", 8],
+      ["n4", 7],
+      ["n5", 6],
+      ["n6", 5],
+      ["n7", 4],
+      ["n8", 3],
+      ["n9", 2],
+      ["n10", 1],
+    ]);
+    await saveSessionsDroppingOldest(sessions, save, (d) => dropped.push(...d));
+    const lastCall = save.mock.calls.at(-1)![0];
+    expect(lastCall.map((s) => s.id)).toEqual(["n1", "n2", "n3", "n4", "n5", "n6", "n7", "n8"]);
+    expect(dropped.map((s) => s.id)).toEqual(["n9", "n10"]);
+  });
+
+  it("rethrows non-quota errors and quota errors with nothing left to drop", async () => {
+    const boom = new Error("disk on fire");
+    await expect(
+      saveSessionsDroppingOldest(list([["a", 1]]), async () => {
+        throw boom;
+      }),
+    ).rejects.toBe(boom);
+    const quota = Object.assign(new Error("quota"), { name: "QuotaExceededError" });
+    const save = vi.fn(async () => {
+      throw quota;
+    });
+    await expect(saveSessionsDroppingOldest(list([["a", 1]]), save)).rejects.toBe(quota);
+    expect(save).toHaveBeenCalledTimes(2); // full list, then the empty list
+  });
+});
+
+describe("SessionStore persist-time sanitization (M5-2)", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("compacts oversized tool outputs on the way to storage", async () => {
+    const store = new SessionStore();
+    const session = makeSession({ id: "big", updatedAt: 5 });
+    session.messages = [assistantWithToolOutput(30_000)];
+    store.record(session);
+    await vi.advanceTimersByTimeAsync(WRITE_DEBOUNCE_MS);
+    const [stored] = await loadSessions();
+    const output = (stored!.messages[0]!.parts[1] as { output: { juniorTrimmed?: boolean } })
+      .output;
+    expect(output.juniorTrimmed).toBe(true);
   });
 });

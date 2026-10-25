@@ -186,6 +186,82 @@ export async function setActiveSessionId(id: string | null): Promise<void> {
   }
 }
 
+// --- oversized-output trimming (M5-2) -----------------------------------------
+// Tool outputs (screenshot base64 can approach 1 MB) are workable live but are
+// dead weight in storage — chrome.storage.local quota is 10 MB and history holds
+// every output forever. Persist-time compaction keeps transcripts readable
+// (tool name, size) while dropping the payload.
+
+export const MAX_TOOL_OUTPUT_CHARS = 20_000;
+
+const isToolPartName = (type: string): boolean =>
+  type === "dynamic-tool" || type.startsWith("tool-");
+
+function jsonSize(value: unknown): number {
+  try {
+    return JSON.stringify(value)?.length ?? 0;
+  } catch {
+    return Number.MAX_SAFE_INTEGER; // unserializable output counts as oversized
+  }
+}
+
+/** Replace tool-part outputs over `maxChars` with a size stub. Everything else
+ * (text, reasoning, args, errorText) passes through untouched — unchanged
+ * messages keep their object identity. */
+export function sanitizeSessionMessages(
+  messages: UIMessage[],
+  maxChars: number = MAX_TOOL_OUTPUT_CHARS,
+): UIMessage[] {
+  return messages.map((message) => {
+    let changed = false;
+    const parts = message.parts.map((part) => {
+      if (!isToolPartName(part.type)) return part;
+      const output = (part as { output?: unknown }).output;
+      if (output === undefined) return part;
+      const size = typeof output === "string" ? output.length : jsonSize(output);
+      if (size <= maxChars) return part;
+      changed = true;
+      // Only `output` changes; the spread keeps every other part field.
+      return { ...part, output: { juniorTrimmed: true, originalChars: size } } as typeof part;
+    });
+    return changed ? { ...message, parts } : message;
+  });
+}
+
+// --- quota-pressure trimming (M5-2) --------------------------------------------
+
+export const QUOTA_DROP_FRACTION = 0.2;
+
+export function isQuotaError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === "QuotaExceededError" ||
+      error.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+      /quota/i.test(error.message))
+  );
+}
+
+/** Persist newest-first sessions; on quota pressure drop the oldest 20% and retry
+ * until the write fits (or nothing is left, which rethrows the last error). */
+export async function saveSessionsDroppingOldest(
+  list: StoredSession[],
+  save: (kept: StoredSession[]) => Promise<void> = saveSessions,
+  onTrimmed?: (dropped: StoredSession[]) => void,
+): Promise<void> {
+  let kept = list;
+  for (;;) {
+    try {
+      await save(kept);
+      return;
+    } catch (error) {
+      if (!isQuotaError(error) || kept.length === 0) throw error;
+      const drop = Math.max(1, Math.ceil(kept.length * QUOTA_DROP_FRACTION));
+      onTrimmed?.(kept.slice(kept.length - drop));
+      kept = kept.slice(0, kept.length - drop);
+    }
+  }
+}
+
 // --- debounced store -----------------------------------------------------------
 
 /** Client-side persistence gate: record() queues a single debounced write;
@@ -236,7 +312,10 @@ export class SessionStore {
     const next = [...batch, ...(await loadSessions()).filter((s) => !stale.has(s.id))];
     next.sort((a, b) => b.updatedAt - a.updatedAt);
     const { kept, dropped } = trimSessions(next, this.options.maxSessions ?? MAX_SESSIONS);
-    await saveSessions(kept);
+    // Trim tool payloads on the way in (M5-2) so screenshots never pile up in
+    // storage, then let the quota fallback shed oldest sessions if it still fails.
+    const sanitized = kept.map((s) => ({ ...s, messages: sanitizeSessionMessages(s.messages) }));
+    await saveSessionsDroppingOldest(sanitized, saveSessions, this.options.onTrimmed);
     if (dropped.length > 0) this.options.onTrimmed?.(dropped);
   }
 }

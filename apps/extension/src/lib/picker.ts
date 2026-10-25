@@ -54,6 +54,15 @@ function providerItems(provider: ProviderStatus): PickerItem[] {
   });
 }
 
+/** Drop recents the catalog no longer knows: provider removed in Settings, or a
+ * model dropped from its list. Providers present but merely unavailable stay —
+ * an outage is temporary, a config removal is not. (buildPickerGroups filters
+ * the display; this prunes the stored list so it never grows stale.) */
+export function pruneRecentModels(recent: RecentModel[], status: BridgeStatus): RecentModel[] {
+  const known = new Map(status.providers.map((p) => [p.id, new Set(modelsFor(p))]));
+  return recent.filter((r) => known.get(r.providerId)?.has(r.model) === true);
+}
+
 /** Groups for the palette: Recent (if any), then one group per provider from
  * /api/status that has models to offer. Unavailable providers and claude-cli (no
  * catalog until the M4-4 engine) are omitted — they can't serve a chat today. */
