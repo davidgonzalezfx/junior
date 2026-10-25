@@ -347,3 +347,19 @@ batteries (500-iteration seeded protocol fuzz + extension unicode fuzz + bridge 
 three. `docs/qa.md` created with the security-pass section green (tests + live curl transcript).
 Affects: `packages/protocol/src/untrusted.ts`, `apps/bridge/src/{index,mcp/tools,chat/tools}.ts`,
 `apps/extension/src/lib/executors/read-page.ts`, plan §6.3-2 unchanged (implemented as specified).
+
+## 2026-10-25 · Perf pass (M5-4): memoized message rows instead of a virtua virtualized list
+
+Context: plan §5.3 specifies a `virtua` virtualized message list ("Autono renders every message node
+and slows down past a few hundred messages"), and M5-4 requires a 1k-message session to scroll
+responsively. Measured in jsdom (React Profiler, `chat-panel.perf.test.tsx`): rendering 1000 messages
+mounts in ~420 ms, but the un-memoized list re-renders EVERY row (re-parsing every markdown body) on
+each streamed delta — an appended exchange costs ~272 ms per commit, and real streaming emits many
+commits per second. Choice: **keep plain rendering, extract a `React.memo`-ized `MessageRow` keyed on
+message identity** (useChat v7 replaces only the last message object per delta) — the same appended
+exchange drops to ~3 ms per commit (~85×), mount unchanged, and the `durations` callback is stabilized
+so memo never busts. Virtualization would additionally complicate auto-scroll-to-newest, jsdom tests,
+and the session restore (which must render enough to anchor scroll position), for a mount-cost win we
+don't need: the 200-session trim + the 20k tool-output sanitize (M5-2) bound a session's rendered
+size. `virtua` stays a backlog seed if real-world sessions grow past what memoization covers.
+Affects: `apps/extension/src/components/chat-panel.tsx`, plan §5.1 tree + §5.3 message-list bullet.

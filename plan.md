@@ -147,7 +147,7 @@ junior/
 │        │  ├─ sidepanel/
 │        │  │  ├─ index.html / main.tsx / App.tsx
 │        │  │  ├─ components/
-│        │  │  │  ├─ chat/        ← message list (virtua), composer, tool-part renderers
+│        │  │  │  ├─ chat/        ← message list (plain + memoized rows — decisions.md 2026-10-25), composer, tool-part renderers
 │        │  │  │  ├─ approval-card.tsx
 │        │  │  │  ├─ model-picker.tsx        ← ⌘K palette (cmdk)
 │        │  │  │  ├─ settings/    ← Providers, Agent, Security, About
@@ -572,8 +572,7 @@ Responsibilities (stateless-friendly, all state in `chrome.storage.session`/`loc
   Bearer token })`. Message parts render: markdown (`streamdown` or `react-markdown` + `remark-gfm`;
   KaTeX deferred to backlog), tool-call cards (collapsible: tool, args, result, duration), reasoning
   (collapsible, CLI engine), usage chips (tokens, model, provider).
-- **Message list**: `virtua` (virtualized) — Autono renders every message node and slows down past a few
-  hundred messages.
+- **Message list**: plain rendering with a `React.memo`-ized `MessageRow` keyed on message identity (decisions.md 2026-10-25 — `virtua` dropped after the M5-4 measurement: memoized rows make a 1k-message session responsive, ~3 ms per appended-exchange commit vs ~272 ms un-memoized; virtualization is a backlog seed if real sessions outgrow it).
 - **Composer**: textarea, Enter to send, Shift+Enter newline. Agent mode is a persistent toggle chip beside the model badge (sends `agentMode:true` — decisions.md 2026-10-24 replaces the `/agent` slash-command sketch; `/pick` is superseded by the ⌘K palette).
 - **⌘K model picker** (`cmdk`): groups = providers from `/api/status`; rows show model + badges
   (vision/tools/reasoning/fast) + "recent" section (localStorage `junior_recent_models`); selection sets the

@@ -2,7 +2,9 @@
 
 > Plan §8 M5 accept: "checklist in `docs/qa.md` all green." §9 defines the manual items.
 > Automated sections carry their test evidence; manual sections get ticked with a
-> date + one-line outcome when run. Security pass (M5-3) is green; perf (M5-4) owns the rest.
+> date + one-line outcome when run. Security pass (M5-3) green; perf pass (M5-4)
+> green; the remaining boxes need a human at a real Chrome profile (evidence notes
+> say what automation already covers).
 
 ## Security pass (M5-3, 2026-10-25) — ✅ green
 
@@ -33,25 +35,65 @@ sampled routes; https preflight 204 with only `vary: Origin`; valid-token + evil
 byte-identical replay `delivered:false` (tool call answered once); 9 MB POST → 413
 `{"error":"request body too large"}`; small POST → 200.
 
-## M4 accept flows (manual, §9) — ⬜ M5-4 / end-of-M5
+## M4 accept flows — ✅ automated legs green (M5-4, 2026-10-25); real-panel pass pending
 
-- [ ] Panel chat turn (api engine) streams into the panel with usage chip.
-- [ ] Agent-mode panel turn drives navigate → read_page → click on `fixtures/page.html`.
-- [ ] Terminal Claude (gated smoke `JUNIOR_E2E_TERMINAL_CLAUDE=1`) guarded click through a card.
-- [ ] CLI engine turn (gated smoke `JUNIOR_E2E_CLI_ENGINE=1`) end-to-end.
+- [ ] **Panel chat turn (api engine) streams into the panel with usage chip** — every
+      automated leg green: jsdom ChatPanel streaming e2e (M2-3/M5-1) + live SSE
+      finish-metadata from the real gateway (M5-1: `usage 44/98/142 tok, model,
+      provider`). Remaining: a human watching the real side panel.
+- [x] **Agent-mode turn drives navigate → read_page → click on `fixtures/page.html`**
+      — harness e2e green (`tests/e2e/agent-mode.test.ts`, re-run 2026-10-25): real
+      bridge + guard + AgentLoop + executors, scripted provider, zero cards in auto;
+      guard-denial-rides-back-verbatim leg also green.
+- [x] **Terminal Claude guarded click through a card** — gated smoke re-run green
+      2026-10-25 (`JUNIOR_E2E_TERMINAL_CLAUDE=1`, 69 s): real CLI `claude mcp add` →
+      ✔ Connected → sensitive_site card → "once" → click executes, model reports.
+- [x] **CLI engine turn end-to-end** — gated smoke re-run green 2026-10-25
+      (`JUNIOR_E2E_CLI_ENGINE=1`, 40 s): bridge spawns real CLI → mcp-config loopback →
+      get_active_tab → read_page → guarded click, full part map on the SSE wire.
 
-## Sensitive-site matrix rows (manual, §9) — ⬜ M5-4 / end-of-M5
+## Sensitive-site matrix rows (§9) — ✅ automated legs green (M3-5 harness, re-run 2026-10-25); real-Chrome pass pending
 
-- [ ] Sensitive site navigate → card → once / site / deny outcomes (automated in the M3-5
-      harness; manual pass = the same flows against a real Chrome profile).
-- [ ] Secret field refused in every mode (auto + ask).
-- [ ] Panel-closed default-deny within the 120 s window.
+- [ ] **Sensitive site navigate → card → once / site / deny** — all three outcomes
+      proven over the real app in `tests/e2e/harness-sensitive.test.ts` (chase.com
+      fixture: wire card → once; mirror card → once; site grant → silent 2nd nav).
+      Remaining: the same flows at a real Chrome profile.
+- [ ] **Secret field refused in every mode (auto + ask)** — harness e2e green
+      (`harness-fixture.test.ts`, re-run 2026-10-25). Remaining: real-profile spot check.
+- [ ] **Panel-closed default-deny within the 120 s window** — bridge tests green
+      (no-panel ⇒ immediate deny; unanswered card ⇒ 120 s default-deny). Remaining:
+      real-profile observation.
 
-## Crash / perf (manual, §9) — ⬜ M5-4
+## Crash / perf (§9) — ✅ green (M5-4, 2026-10-25)
 
-- [ ] Bridge crash mid-task → overlay clears, futures denied (automated in M4-5; manual
-      pass = kill the real bridge process mid-turn).
-- [ ] 1k-message session scroll (panel stays responsive).
-- [ ] DOM dump audit: outline ≤ 4k chars typical.
-- [ ] SW wake count audit: idle = 0 wakes beyond the health poll.
-- [ ] Panel Stop mid-agent-turn → no further dispatcher activity (backlog seed, M4-5).
+- [x] **Bridge crash mid-task** — M4-5 automated tests (dispose denies futures,
+      cards default-deny, overlay cleared, SW-crash recovery) + live pass 2026-10-25:
+      real `dist` bridge, long-poll in flight, `kill -9` → client socket dropped
+      (curl exit 52); graceful SIGTERM path was live-proven in M4-5 ("bridge
+      shutting down").
+- [x] **1k-message session scroll** — `chat-panel.perf.test.tsx` (React Profiler,
+      jsdom): 1000 rendered messages mount ≈ 420 ms; an appended exchange on top of
+      the 1k list costs ≈ 3 ms per commit with the memoized `MessageRow` (was ≈
+      272 ms un-memoized — the O(n)-per-delta regression this test now pins).
+      `virtua` formally dropped → decisions.md 2026-10-25.
+- [x] **DOM dump audit: outline ≤ 4k chars typical** — `read-page.test.ts` M5-4
+      audit block (real vendored buildDomTree, whole-page viewport): plan fixture
+      page = **136 chars**; representative landing page (~90 interactive elements) =
+      **1457 chars**; 1500-element stress page bounded by the maxChars cap
+      (**8069** = 8000 + truncation note). Typical pages run 3× under budget.
+- [x] **SW wake count audit: idle = 0 wakes beyond the health poll** — built
+      `.output/chrome-mv3/background.js` grepped 2026-10-25: **zero** `alarms.*`,
+      **zero** `setInterval`; listeners = onInstalled, onStartup, onConnect,
+      runtime.onMessage (+ per-port onDisconnect — only exists once a panel port
+      exists). Wake matrix: panel closed + idle → **0 wakes** (no
+      alarms, no manifest content scripts, no tabs/webNavigation listeners); panel
+      open → 1 wake (onConnect port, keeps SW alive by design); the 5 s health
+      poll is a fetch from the panel document — it never routes through the SW;
+      during a task the 15 s long-poll keeps the SW alive (plan §10). `alarms`
+      permission retained as the documented §10 contingency, intentionally unused.
+- [x] **Panel Stop mid-agent-turn → no further dispatcher activity** — M4-5 route
+      tests green: aborting the turn's signal ends the api engine's tool loop
+      (streamText `onAbort`) and SIGTERMs the spawned CLI; verified over
+      `app.request`'s RequestInit.signal (the same object the server reads from
+      the client-disconnected socket). Real-browser-disconnect socket leg noted in
+      the M4-5 backlog seed as the only untested hop.
