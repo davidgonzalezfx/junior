@@ -34,6 +34,8 @@ import { executeAction, type ExecutorEnv } from "@/lib/executors";
 import { juniorActionInPage } from "@/lib/executors/in-page";
 import { juniorReadTextInPage } from "@/lib/executors/read-page";
 import { addSiteGrant, getSiteGrants, grantCovers } from "@/lib/site-grants";
+import { PANEL_PORT_NAME, PortRouter, type PortLike } from "@/lib/port-router";
+import { PanelApprovalBroker } from "@/lib/panel-approvals";
 import type { ApprovalAnswer, ApprovalAsk } from "@/lib/panel-approvals";
 import { FakeTab, type FakePage } from "./fake-tab";
 
@@ -57,6 +59,10 @@ export interface HarnessOptions {
    * tests run the REAL chat tool loop with no LLM. Also writes a dummy
    * anthropicKey into the harness config so resolveModel accepts "anthropic". */
   chatFetch?: typeof fetch;
+  /** M5-9: "real" wires the REAL PortRouter + PanelApprovalBroker behind a stub
+   * panel port (connectPanel), so panel-closed semantics run over the real chain.
+   * Default "scripted" keeps the always-listening sink with scripted answers. */
+  panel?: "scripted" | "real";
 }
 
 export interface Harness {
@@ -76,6 +82,17 @@ export interface Harness {
   /** Script the NEXT card's answer. Unset answers default to deny, so a test
    * that forgets to script a card fails loudly instead of passing mysteriously. */
   answerNext(answer: ApprovalAnswer | ((approval: ApprovalRequest) => ApprovalAnswer)): void;
+  /** M5-9 (panel: "real"): attach a stub panel port to the REAL PortRouter —
+   * messages it receives, disconnect() to close it mid-anything, respond() to
+   * answer a card through the real router→broker→loop chain. */
+  connectPanel(): {
+    /** Every message the SW broadcast to this port, in order. */
+    readonly messages: readonly unknown[];
+    /** Simulates the panel closing: fires the port's onDisconnect. */
+    disconnect(): void;
+    /** Panel-side card answer through the REAL inbound chain. */
+    respond(id: string, decision: "once" | "site" | "deny"): void;
+  };
   /** The REAL AgentLoop — M4-5 tests pause it to pin an item in the bridge queue. */
   readonly loop: AgentLoop;
   /** Resolves once the loop's first long-poll has pinged the bridge. */
@@ -97,7 +114,24 @@ export async function startHarness(opts: HarnessOptions): Promise<Harness> {
   const wireCards: ApprovalRequest[] = [];
   const answers: Array<ApprovalAnswer | ((a: ApprovalRequest) => ApprovalAnswer)> = [];
 
-  const sink: ApprovalAsk = {
+  // M5-9: the real panel stack — a PortRouter whose ports are the stub ports
+  // connectPanel() attaches, fronting a real PanelApprovalBroker as the ask().
+  const HARNESS_EXT_ID = "junior-harness-extension-id";
+  const HARNESS_EXT_ORIGIN = `chrome-extension://${HARNESS_EXT_ID}`;
+  let panelRouter: PortRouter | null = null;
+  let panelBroker: PanelApprovalBroker | null = null;
+  if (opts.panel === "real") {
+    panelRouter = new PortRouter({
+      extensionId: HARNESS_EXT_ID,
+      extensionOrigin: HARNESS_EXT_ORIGIN,
+      onApprovalResponse: (msg) => panelBroker?.handleResponse(msg),
+      // M5-9: last panel port gone ⇒ deny pending cards now (the fix under test)
+      onPanelDisconnected: () => panelBroker?.denyAllNoPanel(),
+    });
+    panelBroker = new PanelApprovalBroker(panelRouter);
+  }
+
+  const scriptedSink: ApprovalAsk = {
     async request(approval) {
       cards.push(approval);
       const next = answers.shift();
@@ -107,6 +141,7 @@ export async function startHarness(opts: HarnessOptions): Promise<Harness> {
     // deny default in request(), not a missing card.
     hasListener: () => true,
   };
+  const sink: ApprovalAsk = panelBroker ?? scriptedSink;
 
   // Bridge side (the harness doubles as the server operator): tmp JUNIOR_HOME,
   // real app, real dispatcher, real SessionGuard seeded with the start tab.
@@ -214,6 +249,31 @@ export async function startHarness(opts: HarnessOptions): Promise<Harness> {
     answerNext(answer) {
       answers.push(answer);
     },
+    connectPanel() {
+      if (!panelRouter) throw new Error(`connectPanel() requires panel: "real"`);
+      const messages: unknown[] = [];
+      const onMessage: ((msg: unknown, port: PortLike) => void)[] = [];
+      const onDisconnect: ((port: PortLike) => void)[] = [];
+      const port: PortLike = {
+        name: PANEL_PORT_NAME,
+        sender: { id: HARNESS_EXT_ID, url: `${HARNESS_EXT_ORIGIN}/sidepanel.html` },
+        postMessage: (msg) => {
+          messages.push(msg);
+        },
+        disconnect() {
+          onDisconnect.forEach((cb) => cb(port));
+        },
+        onMessage: { addListener: (cb) => onMessage.push(cb), removeListener: () => {} },
+        onDisconnect: { addListener: (cb) => onDisconnect.push(cb) },
+      };
+      if (!panelRouter.attach(port)) throw new Error("harness panel port rejected by the router");
+      return {
+        messages,
+        disconnect: () => port.disconnect(),
+        respond: (id: string, decision: "once" | "site" | "deny") =>
+          onMessage.forEach((cb) => cb({ type: "approval_response", id, decision }, port)),
+      };
+    },
     loop,
     async waitConnected(timeoutMs = 5_000): Promise<void> {
       const deadline = Date.now() + timeoutMs;
@@ -230,6 +290,7 @@ export async function startHarness(opts: HarnessOptions): Promise<Harness> {
     },
     async stop(): Promise<void> {
       loop.stop();
+      panelBroker?.denyAll(); // M5-9: clear pending card timers so the worker can exit
       dispatcher.dispose("harness stopped");
       // The loop may hold an in-flight 15 s long-poll — drop its socket so close
       // doesn't wait out the window. (serve() unions http1/http2 types; the cast

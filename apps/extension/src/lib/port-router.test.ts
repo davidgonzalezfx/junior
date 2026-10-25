@@ -163,3 +163,63 @@ describe("PortRouter", () => {
     expect(isApprovalResponseMessage(null)).toBe(false);
   });
 });
+
+describe("PortRouter — onPanelDisconnected (M5-9)", () => {
+  function panelPort(): TestPort {
+    return stubPort({ url: `${EXT_ORIGIN}/sidepanel.html` });
+  }
+
+  it("fires when the LAST panel port disconnects", () => {
+    const onPanelDisconnected = vi.fn();
+    const router = new PortRouter({
+      extensionId: EXT_ID,
+      extensionOrigin: EXT_ORIGIN,
+      onApprovalResponse: vi.fn(),
+      onPanelDisconnected,
+    });
+    const a = panelPort();
+    const b = panelPort();
+    expect(router.attach(a)).toBe(true);
+    expect(router.attach(b)).toBe(true);
+
+    a.__close();
+    expect(onPanelDisconnected).not.toHaveBeenCalled(); // b can still answer
+
+    b.__close();
+    expect(onPanelDisconnected).toHaveBeenCalledTimes(1);
+    expect(router.hasListener()).toBe(false);
+  });
+
+  it("fires on the only port's disconnect; a later reconnect cycles it again", () => {
+    const onPanelDisconnected = vi.fn();
+    const router = new PortRouter({
+      extensionId: EXT_ID,
+      extensionOrigin: EXT_ORIGIN,
+      onApprovalResponse: vi.fn(),
+      onPanelDisconnected,
+    });
+    const port = panelPort();
+    router.attach(port);
+    port.__close();
+    expect(onPanelDisconnected).toHaveBeenCalledTimes(1);
+
+    const again = panelPort();
+    router.attach(again);
+    again.__close();
+    expect(onPanelDisconnected).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejected ports never trigger it", () => {
+    const onPanelDisconnected = vi.fn();
+    const router = new PortRouter({
+      extensionId: EXT_ID,
+      extensionOrigin: EXT_ORIGIN,
+      onApprovalResponse: vi.fn(),
+      onPanelDisconnected,
+    });
+    expect(router.attach(stubPort({ name: "wrong-port" }))).toBe(false);
+    expect(router.attach(stubPort({ url: "https://evil.example/" }))).toBe(false);
+    expect(onPanelDisconnected).not.toHaveBeenCalled();
+    expect(router.hasListener()).toBe(false);
+  });
+});

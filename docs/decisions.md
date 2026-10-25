@@ -404,3 +404,28 @@ points at the extension's site-access settings instead of a retry button. Tests 
 behind a two-method `PermissionsGate` (wxt's fakeBrowser implements none of the permissions API).
 Affects: `apps/extension/wxt.config.ts`, `apps/extension/src/lib/host-permissions.ts`,
 `apps/extension/src/components/chat-panel.tsx`, plan §5.1.
+
+## 2026-10-25 · Last-panel-port disconnect denies pending approvals immediately (M5-9)
+
+Context: the real-Chrome pass reproduced a hard hang — with a card pending, CLOSING the side panel lost
+the card and its 120 s default-deny; the task never resolved (open panel: card + 120 s deny worked).
+Root cause: the extension-side window is a `setTimeout` in `PanelApprovalBroker` inside the MV3 service
+worker. While a card is pending the AgentLoop is not long-polling (no fetch keepalive), and once the
+panel closes there are no port events either — the SW goes idle and Chrome suspends it, destroying the
+timer and the pending promise; nothing ever posts a decision, and the bridge item sits answered-by-
+nobody until the bridge's own `withTimeout` backstop fires. The SW-owned disconnect path did nothing:
+`PortRouter` just evicted the port. Options: (a) deny pending cards when the LAST panel port
+disconnects; (b) keep the SW alive across the card window (alarms/keepalive gymnastics); (c) rely on
+the bridge's 120 s backstop and treat the lost card as cosmetic. Choice: **(a)** — nobody is left who
+could ever answer, so waiting out the window serves nothing (§4.3's own "no-panel ⇒ deny now" rule,
+applied at disconnect instead of only at request time); it closes the hang by construction (a closed
+panel leaves ZERO pending timers, so there is nothing for a suspension to drop), the awaiting loop
+wakes and unwinds normally (decision posted, overlay hidden, status idle), and cards close with the
+already-defined `approval_resolved by:"no-panel"`. Residual: a card pending while the panel stays OPEN
+but fully idle could still lose its SW timer to suspension — there the bridge `withTimeout` backstop
+(denies at the window; now pinned by its own delivered-but-unanswered test) is the contract, and the
+user's repro showed the open-panel case works live. Reopen truth: `task_status` broadcasts are
+fire-and-forget, so a panel connecting mid-task had to guess "idle" — a `TaskStatusTracker` now holds
+the SW's last state and every connect receives it right after `init_state`. Affects:
+`apps/extension/src/lib/port-router.ts`, `panel-approvals.ts`, `task-status.ts` (new),
+`entrypoints/background.ts`, plan §5.2 item 2.

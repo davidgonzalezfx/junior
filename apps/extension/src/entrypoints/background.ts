@@ -5,6 +5,7 @@ import { executeAction, defaultEnv } from "@/lib/executors";
 import { AgentLoop, mirrorAsk } from "@/lib/agent-loop";
 import { PortRouter } from "@/lib/port-router";
 import { PanelApprovalBroker } from "@/lib/panel-approvals";
+import { TaskStatusTracker } from "@/lib/task-status";
 import { WorkOverlayController, defaultOverlayEnv } from "@/lib/work-overlay";
 import {
   fetchNextAction,
@@ -53,22 +54,32 @@ export default defineBackground(() => {
   });
 
   // --- Port router + approval broker (§5.2 item 5) -----------------------------
+  const taskStatus = new TaskStatusTracker(); // M5-9: last state for (re)connecting panels
   const router = new PortRouter({
     extensionId: browser.runtime.id,
     extensionOrigin: location.origin,
     onApprovalResponse: (msg) => broker.handleResponse(msg),
+    // M5-9: the panel is the only approver — once its port is gone nobody can
+    // ever answer, so deny every pending card NOW (§4.3 no-panel ⇒ deny). This
+    // is the fix for the real-Chrome hang: a closed panel used to leave the
+    // card on a SW setTimeout that an MV3 suspension silently dropped, parking
+    // the item forever. The loop awaiting the card wakes, posts the deny, and
+    // unwinds (overlay hidden via onStatus idle).
+    onPanelDisconnected: () => broker.denyAllNoPanel(),
   });
   const broker = new PanelApprovalBroker(router);
 
   browser.runtime.onConnect.addListener((port) => {
     if (!router.attach(port)) return;
-    // init_state once, immediately on connect (Autono background.js:5225).
+    // init_state once, immediately on connect (Autono background.js:5225), then
+    // the task's CURRENT state — a panel opened mid-task missed every broadcast.
     void loadSettings().then((settings) => {
       router.broadcast({
         type: "init_state",
         agentActive: loop.active,
         permissionMode: settings.permissionMode,
       });
+      router.broadcast(taskStatus.snapshot());
     });
   });
 
@@ -114,11 +125,11 @@ export default defineBackground(() => {
       }),
     ask: broker,
     onStatus: (state, detail) => {
-      router.broadcast({ type: "task_status", state, detail });
+      router.broadcast(taskStatus.update(state, detail));
       void syncOverlay(state).catch(() => null);
     },
     onPausedChange: (paused) => {
-      router.broadcast({ type: "task_status", state: paused ? "paused" : "idle" });
+      router.broadcast(taskStatus.update(paused ? "paused" : "idle"));
       void overlay.setPaused(paused).catch(() => null);
     },
     // M4-5: a dead bridge never sends "idle" again — clear the overlay so it
@@ -145,7 +156,7 @@ export default defineBackground(() => {
     }
     broker.cancelAll(); // open cards close with approval_resolved
     await overlay.hide().catch(() => null);
-    router.broadcast({ type: "task_status", state: "idle" });
+    router.broadcast(taskStatus.update("idle"));
   };
 
   // Content-script one-shot messages (overlay_action / content_ready) — the

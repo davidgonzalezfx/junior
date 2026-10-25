@@ -106,3 +106,35 @@ describe("PanelApprovalBroker — cancelAll (M4-5 kill path)", () => {
     await expect(pending).resolves.toBe("deny"); // stays denied
   });
 });
+
+describe("PanelApprovalBroker — denyAllNoPanel (M5-9)", () => {
+  it("resolves every pending card deny and closes them with by: 'no-panel'", async () => {
+    const router = fakeRouter(true);
+    const broker = new PanelApprovalBroker(router);
+    const a = broker.request(APPROVAL, 120_000);
+    const b = broker.request({ ...APPROVAL, pageUrl: "https://other.example/" }, 120_000);
+
+    broker.denyAllNoPanel();
+    await expect(a).resolves.toBe("deny");
+    await expect(b).resolves.toBe("deny");
+    expect(broker.pendingCount).toBe(0);
+    const resolved = router.broadcast.mock.calls
+      .map((c) => c[0])
+      .filter((m) => (m as { type: string }).type === "approval_resolved");
+    expect(resolved).toHaveLength(2);
+    // by: "no-panel" — the wire reason that already existed for this semantic
+    expect(resolved.every((m) => (m as { by: string }).by === "no-panel")).toBe(true);
+  });
+
+  it("does nothing when nothing is pending; late answers stay ignored", async () => {
+    const router = fakeRouter(true);
+    const broker = new PanelApprovalBroker(router);
+    expect(() => broker.denyAllNoPanel()).not.toThrow();
+    const pending = broker.request(APPROVAL, 120_000);
+    const card = router.broadcast.mock.calls[0]![0] as { id: string };
+    broker.denyAllNoPanel();
+    await expect(pending).resolves.toBe("deny");
+    broker.handleResponse({ type: "approval_response", id: card.id, decision: "site" });
+    await expect(pending).resolves.toBe("deny"); // stays denied
+  });
+});

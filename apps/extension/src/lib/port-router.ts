@@ -132,6 +132,12 @@ export interface PortRouterOptions {
   onApprovalResponse: (msg: ApprovalResponseMessage, port: PortLike) => void;
   /** Called when an allowed content-script message arrives (M3-4 wires handlers). */
   onContentMessage?: (msgType: string, msg: unknown, port: PortLike) => void;
+  /** M5-9: the LAST panel port disconnected — nobody is left who could ever
+   * answer a card. The background denies every pending approval here
+   * (§4.3 no-panel ⇒ deny, the bridge-side mirror). Firing this immediately also
+   * removes the card timer an idle-MV3 suspension would otherwise lose: a closed
+   * panel leaves zero pending timers, so the default-deny cannot be lost. */
+  onPanelDisconnected?: () => void;
 }
 
 export function isApprovalResponseMessage(msg: unknown): msg is ApprovalResponseMessage {
@@ -169,6 +175,7 @@ export class PortRouter {
     this.ports.add(port);
     port.onDisconnect.addListener((p) => {
       this.ports.delete(p);
+      if (this.ports.size === 0) this.opts.onPanelDisconnected?.();
     });
     port.onMessage.addListener((msg, p) => this.handleMessage(msg, p));
     return true;

@@ -170,6 +170,22 @@ describe("Dispatcher — approvals on the queue (§4.3)", () => {
     expect(res.error).toBe(approvalDenial("timeout"));
   });
 
+  it("DELIVERED but unanswered card → default-deny after the approval window (M5-9 backstop)", async () => {
+    // The M5-9 real-Chrome hang shape: the item left the queue (a poller holds
+    // it), then the extension went silent. The approval future must STILL be
+    // bounded by the window — this is the bridge-side backstop if the extension's
+    // own timer is ever lost again.
+    const guard = approvingGuard();
+    const d = connectedDispatcher({ guard, approvalTimeoutMs: 50 });
+    const pending = d.dispatch(nav);
+    const card = await d.nextAction(1_000);
+    if (card?.kind !== "approval") throw new Error("expected an approval item");
+    expect(d.queueDepth).toBe(0); // delivered — not buffered anymore
+    const res = await pending;
+    expect(res.status).toBe("denied");
+    expect(res.error).toBe(approvalDenial("timeout"));
+  });
+
   it("no panel connected → immediate deny, no card queued", async () => {
     const guard = approvingGuard();
     const d = new Dispatcher({ guard }); // never pinged
