@@ -10,3 +10,4 @@ export * from "./guard.js";
 export * from "./pairing.js";
 export * from "./queue.js";
 export * from "./status.js";
+export * from "./untrusted.js";

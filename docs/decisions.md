@@ -323,3 +323,27 @@ of a reset socket — verified live). Client disconnects (panel Stop) abort via 
 terminal-Claude task sharing the dispatcher.
 Affects: `apps/bridge/src/dispatcher/{queue,routes}.ts`, `apps/bridge/src/bin.ts`,
 `apps/bridge/src/chat/{routes,engine-cli}.ts`, `apps/extension/src/entrypoints/background.ts`, plan §3 table / §5.2 item 6 / §8 M4.
+
+## 2026-10-25 · Security pass (M5-3): one global 8 MiB body limit; delimiter strip without the wrapper; surrogate-safe truncation
+
+Context: plan §8 M5-3 asks for a security pass — replay, wrong-token sweep, https-CORS, oversized
+payloads, unicode/delimiter fuzz on `read_page`. Three forks surfaced. (1) Body limits: per-route
+ceilings (chat 5 MiB, mcp 256 KiB, …) vs one global limit. Choice: **one global 8 MiB** via hono's
+`bodyLimit` mounted right after CORS, before auth — `/api/chat` messages are the largest legitimate
+body (a 1k-message session with tool outputs, M5-4's perf pass) and 8 MiB is generous headroom above
+it; everything else is far smaller; screenshots ride *out* of the bridge in action-results, never in.
+Per-route tuning is deferred until a real body size demands it. (2) §6.3-2's "nonce delimiter block":
+Junior's prompt assembly is AI-SDK-owned, so `wrapUntrusted` markers around tool output would be noise
+without a system-prompt contract explaining them. Choice: **apply the strip, not the wrapper** —
+`stripDelimiters`/`sanitizeDeep` (ported verbatim to `@junior/protocol/untrusted.ts`, pure, shared)
+run on page-derived ok payloads in BOTH model-facing tool surfaces (chat `runTool`, MCP
+`dispatchTool`), with a per-call nonce generated *after* capture (a page can never know it), removing
+exactly the tokens that could close or fake an untrusted block. Screenshots are exempt — base64 can
+legitimately contain the delimiter words and stripping would corrupt the data URL. Denied/error guard
+strings ride through verbatim (bridge-generated, §4.4). (3) Autono's `capFragment`/cap paths can slice
+a UTF-16 surrogate pair at the cut (lone surrogate → invalid UTF-8 on the wire); Junior adds
+`safeSlice` and uses it in `capToolText`, `capFragment`, and the extension's `capWithNote`. The fuzz
+batteries (500-iteration seeded protocol fuzz + extension unicode fuzz + bridge strip tests) pin all
+three. `docs/qa.md` created with the security-pass section green (tests + live curl transcript).
+Affects: `packages/protocol/src/untrusted.ts`, `apps/bridge/src/{index,mcp/tools,chat/tools}.ts`,
+`apps/extension/src/lib/executors/read-page.ts`, plan §6.3-2 unchanged (implemented as specified).

@@ -4,6 +4,7 @@
 // (Settings→Providers) + chat fallback chain. Guard (M1-4), the cli engine + MCP
 // server (M4) mount below the auth middleware as they land.
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { PairingRequestSchema, PairingResultSchema, PairingStatusSchema } from "@junior/protocol";
 import { Dispatcher, type ActionGuard } from "./dispatcher/queue.js";
 import { defaultGuard } from "./dispatcher/guard.js";
@@ -55,6 +56,19 @@ export function createApp(deps: BridgeDeps = { dir: juniorDir() }) {
   const app = new Hono();
 
   app.use("*", corsAllowlist());
+
+  // M5-3: reject oversized request bodies before any handler parses them (plan §8 M5-3
+  // "oversized payloads"). One global ceiling: /api/chat messages are the largest
+  // legitimate body (a 1k-message session with tool outputs — M5-4's perf pass), while
+  // screenshots ride OUT of the bridge in action-results, never in. 8 MiB is generous
+  // headroom above that; everything else is far smaller. decisions.md 2026-10-25.
+  app.use(
+    "*",
+    bodyLimit({
+      maxSize: 8 * 1024 * 1024,
+      onError: (c) => c.json({ error: "request body too large" }, 413),
+    }),
+  );
 
   // Liveness only — no data, no auth (plan §3 HTTP table).
   app.get("/api/health", (c) => c.json({ ok: true }));

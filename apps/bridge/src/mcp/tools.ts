@@ -6,7 +6,14 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { BridgeStatusSchema, ReadMode, type ActionResult } from "@junior/protocol";
+import {
+  BridgeStatusSchema,
+  ReadMode,
+  newNonce,
+  safeSlice,
+  sanitizeDeep,
+  type ActionResult,
+} from "@junior/protocol";
 import type { Dispatcher } from "../dispatcher/queue.js";
 import { loadConfig } from "../config.js";
 import { buildProviders, API_LEVEL, bridgeVersion } from "../status.js";
@@ -14,27 +21,44 @@ import { probeClaude } from "../cli-detect.js";
 
 // §6.3-6: tool payloads are size-capped everywhere. Screenshots get their own (much
 // larger) ceiling — a 1280px JPEG data URL is legitimately a few hundred KB, while a
-// 5 MB dump must never reach a model context. M5 audits the actual numbers.
+// 5 MB dump must never reach a model context. M5-3 adds safeSlice so the cut can never
+// split a UTF-16 surrogate pair (a lone surrogate serializes to invalid UTF-8).
 export const MAX_TOOL_TEXT_CHARS = 20_000;
 export const MAX_SCREENSHOT_TEXT_CHARS = 1_000_000;
 
 export function capToolText(text: string, max: number): string {
   if (text.length <= max) return text;
-  return `${text.slice(0, max)}\n…[truncated ${text.length - max} chars]`;
+  return `${safeSlice(text, max)}\n…[truncated ${text.length - max} chars]`;
+}
+
+/** ActionResult → model-facing tool text (shared by the MCP catalog and the chat agent
+ * tools — one mapping, two surfaces). ok → the result JSON, size-capped; denied/error →
+ * the guard/error string verbatim (§4.4: the agent must see the structured reason and
+ * give up instead of retrying). Page-derived ok payloads first pass the §6.3-2
+ * delimiter strip with a per-call nonce, so a page cannot close or fake its untrusted
+ * block inside a prompt. Screenshots are exempt: base64 can legitimately contain the
+ * delimiter words, and stripping would corrupt the data URL. */
+export function toolResultText(
+  res: ActionResult,
+  opts: { max: number; pageDerived?: boolean },
+): string {
+  if (res.status === "ok") {
+    const body =
+      opts.pageDerived === false
+        ? JSON.stringify(res.result ?? {})
+        : JSON.stringify(sanitizeDeep(res.result ?? {}, newNonce()));
+    return capToolText(body, opts.max);
+  }
+  return capToolText(res.error ?? `action ended with status "${res.status}"`, opts.max);
 }
 
 /** ActionResult → MCP tool result (§4.6: JSON-stringified text content, errors as isError). */
-export function actionResultToToolResult(res: ActionResult): CallToolResult {
-  if (res.status === "ok") {
-    const text = capToolText(JSON.stringify(res.result ?? {}), MAX_TOOL_TEXT_CHARS);
-    return { content: [{ type: "text", text }] };
-  }
-  // denied/error — the structured guard strings (USER_DENIED:/BLOCKED_BY_POLICY:/…)
-  // ride through verbatim so the agent learns not to retry (plan §4.4).
-  const text = capToolText(
-    res.error ?? `action ended with status "${res.status}"`,
-    MAX_TOOL_TEXT_CHARS,
-  );
+export function actionResultToToolResult(
+  res: ActionResult,
+  opts: { max: number; pageDerived?: boolean } = { max: MAX_TOOL_TEXT_CHARS },
+): CallToolResult {
+  const text = toolResultText(res, opts);
+  if (res.status === "ok") return { content: [{ type: "text", text }] };
   return { content: [{ type: "text", text }], isError: true };
 }
 
@@ -54,15 +78,10 @@ function textResult(text: string): CallToolResult {
 async function dispatchTool(
   dispatcher: Dispatcher,
   action: Parameters<Dispatcher["dispatch"]>[0],
-  max = MAX_TOOL_TEXT_CHARS,
+  opts: { max: number; pageDerived?: boolean } = { max: MAX_TOOL_TEXT_CHARS },
 ): Promise<CallToolResult> {
   const res = await dispatcher.dispatch(action);
-  if (res.status === "ok") {
-    return {
-      content: [{ type: "text", text: capToolText(JSON.stringify(res.result ?? {}), max) }],
-    };
-  }
-  return actionResultToToolResult(res);
+  return actionResultToToolResult(res, opts);
 }
 
 /** Registers the §4.6 catalog on a fresh McpServer (one per request — stateless). */
@@ -160,7 +179,15 @@ export function registerMcpTools(server: McpServer, deps: McpToolDeps): void {
       description:
         "Screenshot of the active tab as a downscaled JPEG data URL (base64 in the text payload). More expensive than read_page — prefer read_page for structure.",
     },
-    async () => dispatchTool(deps.dispatcher, { kind: "screenshot" }, MAX_SCREENSHOT_TEXT_CHARS),
+    async () =>
+      dispatchTool(
+        deps.dispatcher,
+        { kind: "screenshot" },
+        {
+          max: MAX_SCREENSHOT_TEXT_CHARS,
+          pageDerived: false, // base64 — the delimiter strip would corrupt the data URL
+        },
+      ),
   );
 
   server.registerTool(

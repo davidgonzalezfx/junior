@@ -8,25 +8,23 @@ import { tool, type Tool, type ToolSet } from "ai";
 import { z } from "zod";
 import { ReadMode } from "@junior/protocol";
 import type { Dispatcher } from "../dispatcher/queue.js";
-import { MAX_SCREENSHOT_TEXT_CHARS, MAX_TOOL_TEXT_CHARS, capToolText } from "../mcp/tools.js";
+import { MAX_SCREENSHOT_TEXT_CHARS, MAX_TOOL_TEXT_CHARS, toolResultText } from "../mcp/tools.js";
 
 export interface BrowserToolDeps {
   dispatcher: Dispatcher;
 }
 
-/** ActionResult → model-facing tool output. ok → the result JSON (size-capped);
- * denied/error → the guard/error string verbatim (§4.4: the agent must see the
- * structured reason and give up instead of retrying). */
+/** ActionResult → model-facing tool output via the shared mapping (MCP parity):
+ * ok → the result JSON (delimiter-stripped §6.3-2, size-capped); denied/error → the
+ * guard/error string verbatim (§4.4: the agent must see the structured reason and
+ * give up instead of retrying). */
 async function runTool(
   dispatcher: Dispatcher,
   action: Parameters<Dispatcher["dispatch"]>[0],
   max = MAX_TOOL_TEXT_CHARS,
 ): Promise<string> {
   const res = await dispatcher.dispatch(action);
-  if (res.status === "ok") {
-    return capToolText(JSON.stringify(res.result ?? {}), max);
-  }
-  return capToolText(res.error ?? `action ended with status "${res.status}"`, max);
+  return toolResultText(res, { max, pageDerived: action.kind !== "screenshot" });
 }
 
 /** The §4.5 browser tool set, registered only when the request is agentMode. */

@@ -5,7 +5,7 @@
 
 **Updated:** 2026-10-25
 **Current milestone:** M5 Polish + hardening (2/5)
-**Current task:** none claimed (**next up: M5-3** — security pass: replay action id, wrong-token sweep, CORS from https must fail, oversized payloads, read_page fuzz)
+**Current task:** M5-3 · 2026-10-25 — security pass: replay action id, wrong-token sweep, CORS from https must fail, oversized payloads, read_page fuzz
 **Current blockers:** none
 
 ---

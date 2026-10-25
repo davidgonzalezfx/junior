@@ -16,6 +16,8 @@
 // `window.__junior_dom_map_url = location.href` on every build; the resolver
 // (in-page.ts strategy 1) only trusts `__junior_dom_map` while that URL is current.
 
+import { safeSlice } from "@junior/protocol";
+
 export interface ReadTextRequest {
   mode: "text" | "section";
   selector?: string;
@@ -39,7 +41,9 @@ const TRUNCATION_NOTE = " ... [truncated at %d chars — raise maxChars or read 
 function capWithNote(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
   const note = TRUNCATION_NOTE.replace("%d", String(maxChars));
-  return text.slice(0, Math.max(0, maxChars - note.length)) + note;
+  // safeSlice: never split a surrogate pair at the cut (M5-3) — a lone surrogate would
+  // serialize to invalid UTF-8 downstream.
+  return safeSlice(text, Math.max(0, maxChars - note.length)) + note;
 }
 
 export async function juniorReadTextInPage(args: ReadTextRequest): Promise<ReadTextResponse> {
