@@ -37,10 +37,11 @@ byte-identical replay `delivered:false` (tool call answered once); 9 MB POST →
 
 ## M4 accept flows — ✅ automated legs green (M5-4, 2026-10-25); real-panel pass pending
 
-- [ ] **Panel chat turn (api engine) streams into the panel with usage chip** — every
-      automated leg green: jsdom ChatPanel streaming e2e (M2-3/M5-1) + live SSE
-      finish-metadata from the real gateway (M5-1: `usage 44/98/142 tok, model,
-      provider`). Remaining: a human watching the real side panel.
+- [x] **Panel chat turn (api engine) streams into the panel with usage chip** —
+      2026-10-25, real Chrome pass: streamed reply + collapsed Reasoning (401 chars) +
+      usage chip (`↓27 ↑99 tok · recursive/flint-v1.0:free`) via OpenRouter
+      (provider-mvocrjra). Exposed + fixed M5-6 on the way (openai-compatible model
+      catalogs were never persisted → empty picker; commit c661c15).
 - [x] **Agent-mode turn drives navigate → read_page → click on `fixtures/page.html`**
       — harness e2e green (`tests/e2e/agent-mode.test.ts`, re-run 2026-10-25): real
       bridge + guard + AgentLoop + executors, scripted provider, zero cards in auto;
@@ -54,12 +55,15 @@ byte-identical replay `delivered:false` (tool call answered once); 9 MB POST →
 
 ## Sensitive-site matrix rows (§9) — ✅ automated legs green (M3-5 harness, re-run 2026-10-25); real-Chrome pass pending
 
-- [ ] **Sensitive site navigate → card → once / site / deny** — all three outcomes
-      proven over the real app in `tests/e2e/harness-sensitive.test.ts` (chase.com
-      fixture: wire card → once; mirror card → once; site grant → silent 2nd nav).
-      Remaining: the same flows at a real Chrome profile.
-- [ ] **Secret field refused in every mode (auto + ask)** — harness e2e green
-      (`harness-fixture.test.ts`, re-run 2026-10-25). Remaining: real-profile spot check.
+- [x] **Sensitive site navigate → card → once / site / deny** — 2026-10-25, real
+      Chrome pass: once → nav + read execute (post-M5-7 permission dialog on first
+      agent send); deny → `USER_DENIED` rides back verbatim, model reports "denied
+      action is final, won't retry"; site grant → second same-host nav silent, no card.
+      (Stripe.com live site.)
+- [x] **Secret field refused in every mode (auto + ask)** — 2026-10-25, real Chrome
+      pass: agent asked to type into github.com/login's password field → typing
+      refused in both modes, "that action is refused in every mode, and it's final,"
+      field left untouched. Site grants did not override.
 - [ ] **Panel-closed default-deny within the 120 s window** — bridge tests green
       (no-panel ⇒ immediate deny; unanswered card ⇒ 120 s default-deny). Remaining:
       real-profile observation.
