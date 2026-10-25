@@ -381,3 +381,26 @@ string would 400 at the bridge). Anthropic stays on the UI-side well-known fallb
 catalog too would need a `ProvidersConfigSchema` field for no user-visible gain. Affects:
 `apps/bridge/src/providers.ts`, `apps/extension/src/lib/chat.ts`, plan §4.1 + §5.3, protocol `config.ts`
 comment only.
+
+## 2026-10-25 · Agent page actions get runtime `<all_urls>` via `optional_host_permissions` (M5-7)
+
+Context: the real-Chrome pass (M5-5) found every agent-mode page action failing on real sites with
+"Extension manifest must request permission to access this host": navigation (`tabs.update`) needs no
+origin access, but `chrome.scripting.executeScript` (read_page/click/type + overlay injection) needs the
+tab origin's, and the manifest pinned `host_permissions` to the bridge only per plan §5.1's clean-install
+posture. `activeTab` grants die on cross-origin navigation, so the agent loop was broken on all real
+sites — every prior e2e smoke ran on localhost fixtures, so this was never exercised. Options:
+(a) static `host_permissions: ["<all_urls>"]` — installs as "read and change all your data on all
+websites", gutting §5.1's posture at install time; (b) per-site grants surfaced/approved one card at a
+time — heavy UI, and the approval card is already the behavioral gate on top of site access; (c) —
+CHOSEN — `optional_host_permissions: ["<all_urls>"]` keeps install-time access bridge-only, and the
+agent-mode composer send (a user gesture — the only context Chrome allows the dialog in) checks
+`chrome.permissions.contains({origins:["<all_urls>"]})` and calls `chrome.permissions.request` once when
+absent, showing Chrome's one-time all-sites dialog. Plain chat never triggers the gate. A denial still
+runs the task (navigation works) but surfaces a visible "page actions will fail" notice (the
+bridge-offline banner pattern). `activeTab` stays as-is for gesture-granted one-shot cases. After a
+denial, Chrome resolves subsequent `request` calls false without re-showing the dialog — the notice
+points at the extension's site-access settings instead of a retry button. Tests seam `chrome.permissions`
+behind a two-method `PermissionsGate` (wxt's fakeBrowser implements none of the permissions API).
+Affects: `apps/extension/wxt.config.ts`, `apps/extension/src/lib/host-permissions.ts`,
+`apps/extension/src/components/chat-panel.tsx`, plan §5.1.

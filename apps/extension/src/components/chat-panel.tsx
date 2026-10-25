@@ -25,6 +25,7 @@ import {
   setDefaultProvider,
 } from "@/lib/settings";
 import { pruneRecentModels } from "@/lib/picker";
+import { ensureHostAccess } from "@/lib/host-permissions";
 import type { RecentModel } from "@/lib/settings";
 import type { BridgeStatus } from "@junior/protocol";
 import { MarkdownContent } from "@/components/markdown";
@@ -123,6 +124,9 @@ function Chat({
   const [recent, setRecent] = useState<RecentModel[]>(setup.recent);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [agentMode, setAgentMode] = useState(false);
+  // M5-7: set when the agent-mode permission gate is denied — the task still runs
+  // (navigation needs no origin access) but every page action will fail.
+  const [hostDenied, setHostDenied] = useState(false);
   const [draft, setDraft] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -162,10 +166,18 @@ function Chat({
     void addRecentModel({ providerId: picked.providerId, model: picked.model }).then(setRecent);
   };
 
-  const submit = () => {
+  const submit = async () => {
     const text = draft.trim();
     if (text.length === 0 || busy) return;
     setDraft("");
+    // M5-7 (decisions.md 2026-10-25): agent page actions (read_page/click/type +
+    // overlay injection) need origin access to the tab's site — navigation works
+    // without it, real sites don't. The composer send is a user gesture, the one
+    // place Chrome allows the all-sites dialog; plain chat skips the gate entirely.
+    // A denial still runs the task — the notice below says page actions will fail.
+    if (agentMode) {
+      setHostDenied((await ensureHostAccess()) === "denied");
+    }
     void sendMessage({ text });
   };
 
@@ -191,7 +203,10 @@ function Chat({
           aria-pressed={agentMode}
           aria-label="Agent mode"
           title="Agent mode — Junior may act in this tab (guarded by approval cards)"
-          onClick={() => setAgentMode((v) => !v)}
+          onClick={() => {
+            setAgentMode((v) => !v);
+            setHostDenied(false); // M5-7: the notice only describes agent-mode sends
+          }}
           className={
             agentMode
               ? "rounded-md border border-primary bg-primary/10 px-2 py-1 text-xs font-medium text-primary"
@@ -241,6 +256,17 @@ function Chat({
         </div>
       ) : null}
 
+      {agentMode && hostDenied ? (
+        <div
+          role="alert"
+          data-host-permission-denied
+          className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive"
+        >
+          Site access was denied — page actions (read, click, type) will fail this task. Re-enable
+          site access for Junior in Chrome's extension settings and send again.
+        </div>
+      ) : null}
+
       <div className="flex items-end gap-2">
         <textarea
           aria-label="message"
@@ -254,7 +280,7 @@ function Chat({
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
-              submit();
+              void submit();
             }
           }}
         />
@@ -263,7 +289,7 @@ function Chat({
             Stop
           </Button>
         ) : (
-          <Button size="sm" disabled={draft.trim().length === 0} onClick={submit}>
+          <Button size="sm" disabled={draft.trim().length === 0} onClick={() => void submit()}>
             Send
           </Button>
         )}

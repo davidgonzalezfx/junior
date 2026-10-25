@@ -521,6 +521,12 @@ Keep tool names stable — terminal-Claude users will have them in `CLAUDE.md` f
 - Permissions: `storage`, `scripting`, `activeTab`, `sidePanel`, `tabs`, `alarms`.
   (`activeTab`+`scripting` programmatic injection only — **no** static `content_scripts`, same as Autono,
   so we don't run code on every page all the time. `host_permissions`: `http://127.0.0.1:8620/*` only.)
+  `optional_host_permissions: ["<all_urls>"]` (M5-7 — decisions.md 2026-10-25): install-time access stays
+  bridge-only, but agent page actions (`read_page`/`click`/`type` + overlay injection via
+  `scripting.executeScript`) need the tab origin's access — `activeTab` dies on cross-origin navigation —
+  so the agent-mode composer send (user gesture) calls `chrome.permissions.request({origins:
+  ["<all_urls>"]})` once when `permissions.contains` is absent; plain chat never triggers the dialog, and
+  a denial still runs the task with a visible "page actions will fail" notice.
 - CSP: `script-src 'self'`; `connect-src 'self' http://127.0.0.1:8620` (+`https:` if we ever allow direct
   provider calls from the panel — v1 routes **all** inference through the bridge, so keep CSP tight).
 - `chrome.storage.local.setAccessLevel({accessLevel: "TRUSTED_CONTEXTS"})` (Autono `background.js:38`) —

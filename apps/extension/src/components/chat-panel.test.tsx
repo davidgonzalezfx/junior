@@ -2,8 +2,9 @@
 // api-engine body, markdown streamed into the DOM (jsdom; IS_REACT_ACT_ENVIRONMENT per the
 // M0-4 learning — RTL 16 + React 19 under vitest jsdom). M2-5: the active session is a
 // prop — restored messages seed the transcript, finished exchanges flow to onRecord.
-// M5-1: tool-call cards, reasoning collapse, usage chips, empty/error states.
-// (472 lines — over the ~400 budget: one shared SSE/fetch harness serves every panel
+// M5-1: tool-call cards, reasoning collapse, usage chips, empty/error states. M5-7:
+// agent-mode sends run the host-permission gate; plain chat never touches it.
+// (~600 lines — over the ~400 budget: one shared SSE/fetch harness serves every panel
 // flow; splitting the render tests out would duplicate it rather than simplify.)
 /** @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -27,6 +28,25 @@ class ResizeObserverStub {
 (globalThis as Record<string, unknown>).ResizeObserver = ResizeObserverStub;
 // cmdk scrolls the selected item into view — jsdom lacks both the API and layout.
 Element.prototype.scrollIntoView = () => {};
+
+// M5-7: the agent-mode send runs the host-permission gate over browser.permissions
+// (fakeBrowser has no implementation). Default the whole file to already-granted so
+// the agent flows above exercise the cheap contains path; the M5-7 tests override it.
+function stubPermissions(granted: boolean, requestResult: boolean) {
+  const calls = { contains: 0, request: 0 };
+  (browser as { permissions?: unknown }).permissions = {
+    contains: async () => {
+      calls.contains += 1;
+      return granted;
+    },
+    request: async () => {
+      calls.request += 1;
+      return requestResult;
+    },
+  };
+  return calls;
+}
+stubPermissions(true, true);
 
 const UI_STREAM = [
   `data: {"type":"start"}`,
@@ -297,6 +317,75 @@ describe("ChatPanel", () => {
     fireEvent.keyDown(textarea, { key: "Enter" });
     await waitFor(() => expect(chatRequests).toHaveLength(3));
     expect(chatRequests[2]!.body.agentMode).toBeUndefined();
+  });
+
+  it("M5-7: plain chat never touches the host-permission gate", async () => {
+    await browser.storage.local.set({
+      junior_bridge_token: "t".repeat(64),
+      junior_default_provider: { providerId: "openrouter", model: "vendor/model-x" },
+    });
+    vi.stubGlobal("fetch", stubFetch());
+    const calls = stubPermissions(false, true); // would request if consulted at all
+
+    render(<ChatPanel session={emptySession()} onRecord={vi.fn()} />);
+    const textarea = await screen.findByLabelText("message");
+    fireEvent.change(textarea, { target: { value: "plain question" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await waitFor(() => expect(chatRequests).toHaveLength(1));
+
+    expect(calls.contains).toBe(0);
+    expect(calls.request).toBe(0);
+  });
+
+  it("M5-7: the first agent-mode send requests <all_urls>; once granted, later sends skip it", async () => {
+    await browser.storage.local.set({
+      junior_bridge_token: "t".repeat(64),
+      junior_default_provider: { providerId: "openrouter", model: "vendor/model-x" },
+    });
+    vi.stubGlobal("fetch", stubFetch());
+    const calls = stubPermissions(false, true);
+
+    render(<ChatPanel session={emptySession()} onRecord={vi.fn()} />);
+    fireEvent.click(await screen.findByLabelText("Agent mode"));
+    const textarea = screen.getByLabelText("message");
+    fireEvent.change(textarea, { target: { value: "do a task" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await waitFor(() => expect(chatRequests).toHaveLength(1));
+
+    // The dialog ran once; the send went out and no denial notice shows.
+    expect(calls.contains).toBe(1);
+    expect(calls.request).toBe(1);
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    // Second send: access is already granted — contains only, no second dialog.
+    const granted = stubPermissions(true, true);
+    fireEvent.change(textarea, { target: { value: "another task" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await waitFor(() => expect(chatRequests).toHaveLength(2));
+    expect(granted.request).toBe(0);
+  });
+
+  it("M5-7: a denied gate still sends the task and shows the page-actions-will-fail notice", async () => {
+    await browser.storage.local.set({
+      junior_bridge_token: "t".repeat(64),
+      junior_default_provider: { providerId: "openrouter", model: "vendor/model-x" },
+    });
+    vi.stubGlobal("fetch", stubFetch());
+    stubPermissions(false, false);
+
+    render(<ChatPanel session={emptySession()} onRecord={vi.fn()} />);
+    fireEvent.click(await screen.findByLabelText("Agent mode"));
+    const textarea = screen.getByLabelText("message");
+    fireEvent.change(textarea, { target: { value: "do a task anyway" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => expect(chatRequests).toHaveLength(1)); // the task still runs
+    const notice = await screen.findByRole("alert");
+    expect(notice.getAttribute("data-host-permission-denied")).not.toBeNull();
+
+    // Toggling agent mode off dismisses the notice (it only describes agent sends).
+    fireEvent.click(screen.getByLabelText("Agent mode"));
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("M4-3: streamed tool parts render as collapsible tool-call cards (M5-1)", async () => {

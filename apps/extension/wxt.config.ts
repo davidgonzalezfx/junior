@@ -26,8 +26,15 @@ export default defineConfig({
     // §5.1: programmatic injection only — no static content_scripts (code does not run on
     // every page all the time). `sidePanel` is also auto-added by the sidepanel entrypoint.
     permissions: ["storage", "scripting", "activeTab", "sidePanel", "tabs", "alarms"],
-    // §5.1: the bridge is the ONLY host. v1 routes all inference through the bridge.
+    // §5.1: the bridge is the ONLY host at install time. v1 routes all inference through
+    // the bridge. (M5-7 — decisions.md 2026-10-25: agent page actions — read_page/click/
+    // type + overlay injection — need origin access to the TAB's site, which this grant
+    // can never cover; <all_urls> is declared optional below and requested at runtime.)
     host_permissions: ["http://127.0.0.1:8620/*"],
+    // M5-7: install stays clean ("on click" posture intact); the agent-mode composer
+    // send (user gesture — the only place Chrome allows it) requests <all_urls> once
+    // via chrome.permissions.request. Plain chat never triggers the dialog.
+    optional_host_permissions: ["<all_urls>"],
     // Toolbar icon exists so the SW can wire openPanelOnActionClick (background.ts).
     action: { default_title: "Open Junior" },
     // §5.1 CSP: scripts only from the bundle; network only to the extension itself and the
