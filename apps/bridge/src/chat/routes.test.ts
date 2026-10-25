@@ -47,7 +47,15 @@ const uiMessage = { id: "m1", role: "user", parts: [{ type: "text", text: "hi" }
  * when the outbound messages carry no tool result yet, the mock emits a tool_calls
  * delta (M0-4 verified the wire shape); the follow-up turn gets plain text. */
 async function startMockOpenAI(
-  opts: { failStatus?: number; text?: string; toolCall?: { name: string; args: unknown } } = {},
+  opts: {
+    failStatus?: number;
+    text?: string;
+    toolCall?: { name: string; args: unknown };
+    /** Final-chunk usage (OpenAI wire shape) — the M5-1 message-metadata assertions. */
+    usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+    /** model field on chunks → the SDK's response.modelId → metadata.model. */
+    model?: string;
+  } = {},
 ): Promise<{ baseUrl: string; bodies: unknown[] }> {
   const bodies: unknown[] = [];
   const server: Server = createServer((req, res) => {
@@ -97,9 +105,14 @@ async function startMockOpenAI(
         );
         send({}, "tool_calls");
       } else {
-        send({ role: "assistant", content: "" }, null);
+        const modelField = opts.model !== undefined ? { model: opts.model } : {};
+        send({ role: "assistant", content: "", ...modelField }, null);
         send({ content: opts.text ?? "OPENROUTER_MOCK_OK" }, null);
-        send({}, "stop");
+        const stopPayload = {
+          choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+          ...(opts.usage !== undefined ? { usage: opts.usage } : {}),
+        };
+        res.write(`data: ${JSON.stringify(stopPayload)}\n\n`);
       }
       res.write("data: [DONE]\n\n");
       res.end();
@@ -169,6 +182,33 @@ describe("POST /api/chat (engine api)", () => {
     expect(text).toContain("OPENROUTER_MOCK_OK");
     expect(text).toContain('"type":"finish"');
     expect(text.trimEnd().endsWith("data: [DONE]")).toBe(true);
+  });
+
+  it("M5-1: attaches usage metadata on finish (message-metadata chunk with tokens/model/provider)", async () => {
+    const { baseUrl } = await startMockOpenAI({
+      usage: { prompt_tokens: 12, completion_tokens: 34, total_tokens: 46 },
+      model: "mock-model-1",
+    });
+    const { app } = newApp({
+      providers: {
+        openaiCompatible: [{ id: "openrouter", label: "OpenRouter", baseUrl, apiKey: "sk-test" }],
+      },
+    });
+    const res = await postChat(app, {
+      provider: "openrouter",
+      model: "anthropic/claude-sonnet-5.5",
+      messages: [uiMessage],
+    });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    // The metadata rides ON the finish chunk (no separate message-metadata chunk —
+    // observed on the wire; toUIMessageStream merges the callback result into finish).
+    expect(text).toContain('"messageMetadata"');
+    expect(text).toContain('"inputTokens":12');
+    expect(text).toContain('"outputTokens":34');
+    expect(text).toContain('"totalTokens":46');
+    expect(text).toContain('"model":"anthropic/claude-sonnet-5.5"');
+    expect(text).toContain('"provider":"openrouter"');
   });
 
   it("merges the Junior instructions with the panel's system bit on the provider wire", async () => {

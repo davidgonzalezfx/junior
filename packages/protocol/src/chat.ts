@@ -27,3 +27,22 @@ export const ChatRequestBodySchema = z
   });
 
 export type ChatRequestBody = z.infer<typeof ChatRequestBodySchema>;
+
+/** Message metadata both /api/chat engines attach to assistant UIMessages via the AI
+ * SDK v7 `messageMetadata` contract — the panel's usage chips (plan §5.3, gap #7).
+ * Type-only: it rides inside the UIMessage stream, not this schema. All fields
+ * optional — a mid-stream abort or an engine without usage data simply omits them. */
+export interface ChatMessageMetadata {
+  usage?: {
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+  };
+  /** The model id as the engine ran it (api: the provider's modelId; cli: the requested model). */
+  model?: string;
+  /** The provider id as configured ("anthropic", an openai-compatible id, "claude-cli"). */
+  provider?: string;
+  /** CLI engine only: the result event's duration_ms / total_cost_usd. */
+  durationMs?: number;
+  costUsd?: number;
+}

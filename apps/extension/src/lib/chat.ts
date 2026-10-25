@@ -3,8 +3,11 @@
 // M2-3 ships a minimal provider/model choice (stored default + fallbacks); M2-4's
 // ⌘K picker replaces the target-resolution UI, not these pure helpers.
 import { DefaultChatTransport, type UIMessage } from "ai";
-import type { BridgeStatus, ProviderStatus } from "@junior/protocol";
+import type { BridgeStatus, ChatMessageMetadata, ProviderStatus } from "@junior/protocol";
 import type { DefaultProvider } from "./settings";
+
+/** Assistant messages carry the engines' usage metadata (M5-1 usage chips, plan §5.3). */
+export type JuniorUIMessage = UIMessage<ChatMessageMetadata>;
 
 export interface ChatTarget {
   providerId: string;
@@ -55,7 +58,7 @@ export function createChatTransport(
   token: string,
   target: ChatTarget,
   agentMode = false,
-): DefaultChatTransport<UIMessage> {
+): DefaultChatTransport<JuniorUIMessage> {
   return new DefaultChatTransport({
     api: `${bridgeUrl}/api/chat`,
     headers: { Authorization: `Bearer ${token}` },

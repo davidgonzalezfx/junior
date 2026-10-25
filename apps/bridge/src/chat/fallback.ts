@@ -22,7 +22,13 @@ export function buildCandidateChain(primary: string, chain: readonly string[]): 
 
 /** Chunks that are stream bookkeeping — neither content nor failure. Anything outside
  * this set counts as content (safer against v7 chunk-type renames than enumerating). */
-const LIFECYCLE_TYPES = new Set(["start", "start-step", "finish-step", "finish"]);
+const LIFECYCLE_TYPES = new Set([
+  "start",
+  "start-step",
+  "finish-step",
+  "finish",
+  "message-metadata",
+]);
 
 interface Probe {
   stream: ReadableStream<UIMessageChunk>;

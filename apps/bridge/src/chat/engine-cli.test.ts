@@ -333,6 +333,45 @@ describe("runCliTurn (spawned node fixture)", () => {
 
 // --- the route: POST /api/chat engine=cli over the real app ----------------------
 
+describe("cliResultToMetadata (M5-1 usage chips)", () => {
+  it("maps the result event's snake_case usage to the shared metadata shape", async () => {
+    const { cliResultToMetadata } = await import("./engine-cli.js");
+    const metadata = cliResultToMetadata(
+      {
+        subtype: "success",
+        isError: false,
+        text: "done",
+        numTurns: 1,
+        durationMs: 1234,
+        totalCostUsd: 0.0123,
+        usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 5 },
+      },
+      "glm-5.3-flash",
+    );
+    expect(metadata).toEqual({
+      usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
+      provider: "claude-cli",
+      model: "glm-5.3-flash",
+      durationMs: 1234,
+      costUsd: 0.0123,
+    });
+    // No usage block at all → no usage key (the chip renders provider/model only).
+    const bare = cliResultToMetadata(
+      {
+        subtype: "success",
+        isError: false,
+        text: "done",
+        numTurns: null,
+        durationMs: null,
+        totalCostUsd: null,
+        usage: null,
+      },
+      "m",
+    );
+    expect(bare).toEqual({ provider: "claude-cli", model: "m" });
+  });
+});
+
 const uiMessage = { id: "m1", role: "user", parts: [{ type: "text", text: "hi" }] };
 
 /** spawnImpl seam: records the CLI-style args, then REALLY spawns a node fixture —
@@ -410,6 +449,14 @@ describe("POST /api/chat engine=cli (M4-4)", () => {
     expect(sse1).toContain('"type":"start"');
     expect(sse1).toContain("CLI_OK");
     expect(sse1).toContain('"type":"finish"');
+    // M5-1 usage chips: the result event's usage/cost/duration ride as message metadata.
+    expect(sse1).toContain('"type":"message-metadata"');
+    expect(sse1).toContain('"inputTokens":1');
+    expect(sse1).toContain('"outputTokens":1');
+    expect(sse1).toContain('"totalTokens":2');
+    expect(sse1).toContain('"durationMs":4');
+    expect(sse1).toContain('"provider":"claude-cli"');
+    expect(sse1).toContain('"model":"glm-5.3-flash"');
     expect(seam.calls).toHaveLength(1);
 
     const call1 = seam.calls[0];

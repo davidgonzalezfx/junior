@@ -2,13 +2,18 @@
 // and the ⌘K provider/model palette (plan §5.3). M2-5: session persistence — the
 // active session (id + restored messages) comes from App, finished message lists
 // flow back through onRecord for the debounced history write. M4-3: an Agent toggle
-// (agentMode:true → bridge registers its browser tools) + minimal dynamic-tool
-// progress lines; the full tool-call cards are M5 polish.
+// (agentMode:true → bridge registers its browser tools). M5-1: tool-call cards,
+// reasoning collapse, usage chips, empty/error/loading states.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import type { UIMessage } from "ai";
 import { BridgeUnreachableError, fetchStatus } from "@/lib/bridge-client";
-import { createChatTransport, resolveChatTarget, type ChatTarget } from "@/lib/chat";
+import {
+  createChatTransport,
+  resolveChatTarget,
+  type ChatTarget,
+  type JuniorUIMessage,
+} from "@/lib/chat";
 import type { StoredSession } from "@/lib/history";
 import {
   addRecentModel,
@@ -22,6 +27,14 @@ import type { BridgeStatus } from "@junior/protocol";
 import { MarkdownContent } from "@/components/markdown";
 import { ModelPicker } from "@/components/model-picker";
 import { Button } from "@/components/ui/button";
+import {
+  ChatEmptyState,
+  ReasoningBlock,
+  ToolCallCard,
+  UsageChip,
+  isToolPart,
+  isToolPartView,
+} from "@/components/chat/message-parts";
 
 interface Setup {
   bridgeUrl: string;
@@ -109,13 +122,18 @@ function Chat({
     () => createChatTransport(setup.bridgeUrl, setup.token, target, agentMode),
     [setup, target, agentMode],
   );
-  const { messages, sendMessage, status, error, stop } = useChat({
+  const { messages, sendMessage, regenerate, status, error, stop } = useChat<JuniorUIMessage>({
     id: session.id,
-    messages: session.messages,
+    // Storage is typed loose (UIMessage, metadata unknown) — the one honest narrowing;
+    // the wire round-trip is validated by the tests that stream message-metadata.
+    messages: session.messages as JuniorUIMessage[],
     transport,
   });
 
   const busy = status === "submitted" || status === "streaming";
+  // Tool-call card durations (plan §5.3): client-measured input→output gap, keyed by
+  // toolCallId. Best-effort — restored sessions have no timing and show no duration.
+  const durations = useToolDurations(messages);
 
   // Persist every messages change (debounced on App's side — 500 ms + write-on-hide).
   useEffect(() => {
@@ -187,9 +205,7 @@ function Chat({
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         {messages.length === 0 ? (
-          <p className="p-4 text-sm text-muted-foreground">
-            Ask anything, or toggle Agent and give Junior a goal in this tab.
-          </p>
+          <ChatEmptyState onPick={setDraft} />
         ) : (
           messages.map((message) => (
             <div
@@ -204,25 +220,54 @@ function Chat({
                 // Server-side tools arrive as tool parts (v7): streamText's static
                 // tools render as `tool-<name>` part types (dynamic:false on the
                 // wire), client-unknown ones as `dynamic-tool` with a toolName
-                // field. Minimal one-line progress render — full tool-call cards
-                // are M5 polish.
-                if (part.type === "dynamic-tool" || part.type.startsWith("tool-")) {
+                // field. Both render as collapsible cards (M5-1).
+                if (isToolPart(part) && isToolPartView(part)) {
                   const name =
-                    part.type === "dynamic-tool" ? part.toolName : part.type.slice("tool-".length);
-                  return <ToolLine key={i} toolName={name} part={part as DynamicToolPartView} />;
+                    part.type === "dynamic-tool"
+                      ? (((part as { toolName?: unknown }).toolName as string | undefined) ??
+                        "tool")
+                      : part.type.slice("tool-".length);
+                  return (
+                    <ToolCallCard
+                      key={i}
+                      toolName={name}
+                      part={part}
+                      durationMs={durations(part.toolCallId)}
+                    />
+                  );
+                }
+                if (part.type === "reasoning") {
+                  return (
+                    <ReasoningBlock
+                      key={i}
+                      text={part.text}
+                      streaming={part.state === "streaming"}
+                    />
+                  );
                 }
                 return part.type === "text" ? <MarkdownContent key={i} text={part.text} /> : null;
               })}
+              {message.role === "assistant" ? <UsageChip metadata={message.metadata} /> : null}
             </div>
           ))
         )}
-        {status === "submitted" ? <p className="px-1 text-sm text-muted-foreground">…</p> : null}
+        {status === "submitted" ? (
+          <p aria-live="polite" className="px-1 text-sm text-muted-foreground">
+            Junior is thinking…
+          </p>
+        ) : null}
       </div>
 
       {error ? (
-        <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
-          {error instanceof Error ? error.message : String(error)}
-        </p>
+        <div
+          role="alert"
+          className="flex items-center justify-between gap-2 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive"
+        >
+          <span>{error instanceof Error ? error.message : String(error)}</span>
+          <Button variant="outline" size="sm" onClick={() => regenerate()}>
+            Retry
+          </Button>
+        </div>
       ) : null}
 
       <div className="flex items-end gap-2">
@@ -256,33 +301,28 @@ function Chat({
   );
 }
 
-/** The slice of the v7 tool part the minimal render needs (both the `tool-<name>`
- * static part and `dynamic-tool` share these fields — v7 docs: state
- * input-streaming | input-available | output-available | output-error). */
-interface DynamicToolPartView {
-  state: "input-streaming" | "input-available" | "output-available" | "output-error";
-  input?: unknown;
-  output?: unknown;
-  errorText?: string;
-}
+/** Client-measured tool durations (plan §5.3 card fields): first observation of a
+ * toolCallId starts the clock; its output-available/output-error render stops it.
+ * Purely in-memory — restored sessions show no duration rather than a wrong one. */
+function useToolDurations(messages: JuniorUIMessage[]): (toolCallId: string) => number | null {
+  const starts = useRef(new Map<string, number>());
+  const durations = useRef(new Map<string, number>());
 
-function ToolLine({ toolName, part }: { toolName: string; part: DynamicToolPartView }) {
-  const label =
-    part.state === "output-error"
-      ? `${toolName} failed`
-      : part.state === "output-available"
-        ? toolName
-        : `${toolName}…`;
-  const detail =
-    part.state === "output-error"
-      ? part.errorText
-      : part.state === "output-available"
-        ? JSON.stringify(part.output)
-        : JSON.stringify(part.input);
-  return (
-    <p className="my-1 rounded-md bg-secondary/60 px-2 py-1 font-mono text-xs text-muted-foreground">
-      <span className="font-medium">⚙ {label}</span>
-      {detail ? ` ${detail.slice(0, 200)}${detail.length > 200 ? "…" : ""}` : ""}
-    </p>
-  );
+  useEffect(() => {
+    const now = performance.now();
+    for (const message of messages) {
+      for (const part of message.parts) {
+        if (!isToolPart(part) || !isToolPartView(part)) continue;
+        const done = part.state === "output-available" || part.state === "output-error";
+        const existing = starts.current.get(part.toolCallId);
+        if (existing === undefined) {
+          starts.current.set(part.toolCallId, now);
+        } else if (done && !durations.current.has(part.toolCallId)) {
+          durations.current.set(part.toolCallId, Math.max(0, Math.round(now - existing)));
+        }
+      }
+    }
+  }, [messages]);
+
+  return (toolCallId) => durations.current.get(toolCallId) ?? null;
 }

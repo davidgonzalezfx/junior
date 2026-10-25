@@ -2,6 +2,9 @@
 // api-engine body, markdown streamed into the DOM (jsdom; IS_REACT_ACT_ENVIRONMENT per the
 // M0-4 learning — RTL 16 + React 19 under vitest jsdom). M2-5: the active session is a
 // prop — restored messages seed the transcript, finished exchanges flow to onRecord.
+// M5-1: tool-call cards, reasoning collapse, usage chips, empty/error states.
+// (472 lines — over the ~400 budget: one shared SSE/fetch harness serves every panel
+// flow; splitting the render tests out would duplicate it rather than simplify.)
 /** @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -263,7 +266,7 @@ describe("ChatPanel", () => {
     expect(chatRequests[2]!.body.agentMode).toBeUndefined();
   });
 
-  it("M4-3: streamed tool parts render as progress lines with the result", async () => {
+  it("M4-3: streamed tool parts render as collapsible tool-call cards (M5-1)", async () => {
     await browser.storage.local.set({
       junior_bridge_token: "t".repeat(64),
       junior_default_provider: { providerId: "openrouter", model: "vendor/model-x" },
@@ -305,11 +308,168 @@ describe("ChatPanel", () => {
     fireEvent.change(textarea, { target: { value: "open example.com" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
 
-    // Static server tools render as tool-<name> parts — the line shows the name,
-    // the running → done transition, and the (truncated) output.
+    // Static server tools render as tool-<name> parts — a collapsible card: header
+    // shows the name + state, the body holds args + result behind the summary.
     await waitFor(() => expect(screen.getByText("Opened it.")).toBeTruthy());
-    const line = screen.getByText(/navigate/).closest("p"); // detail is a sibling text node
-    expect(line?.textContent).toContain("navigate");
-    expect(line?.textContent).toContain("Example");
+    const card = screen.getByText("navigate").closest("details");
+    expect(card).toBeTruthy();
+    expect(card!.getAttribute("data-state")).toBe("output-available");
+    expect(card!.querySelector("summary")!.textContent).toContain("done");
+    // Collapsed by default; the body (args + result) renders once open. jsdom has no
+    // summary-click toggle behavior — set `open` directly, which is what the click does.
+    expect(card!.open).toBe(false);
+    card!.open = true;
+    expect(card!.textContent).toContain("args");
+    expect(card!.textContent).toContain("Example");
+  });
+
+  it("M5-1: finish metadata renders as a usage chip on the assistant message", async () => {
+    await browser.storage.local.set({
+      junior_bridge_token: "t".repeat(64),
+      junior_default_provider: { providerId: "openrouter", model: "vendor/model-x" },
+    });
+    // The api engine merges metadata onto the finish chunk (observed on the bridge wire).
+    const metaStream = [
+      `data: {"type":"start"}`,
+      `data: {"type":"start-step"}`,
+      `data: {"type":"text-start","id":"1"}`,
+      `data: {"type":"text-delta","id":"1","delta":"Done."}`,
+      `data: {"type":"text-end","id":"1"}`,
+      `data: {"type":"finish-step"}`,
+      `data: {"type":"finish","finishReason":"stop","messageMetadata":{"usage":{"inputTokens":12,"outputTokens":34,"totalTokens":46},"model":"vendor/model-x","provider":"openrouter"}}`,
+      `data: [DONE]`,
+    ]
+      .map((line) => `${line}\n\n`)
+      .join("");
+    const stub = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const url = String(input);
+      if (url.endsWith("/api/status")) {
+        return new Response(JSON.stringify(STATUS), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.endsWith("/api/chat")) {
+        chatRequests.push({ url, auth: null, body: JSON.parse(String(init?.body)) });
+        return new Response(metaStream, { headers: { "content-type": "text/event-stream" } });
+      }
+      return new Response(JSON.stringify({ error: "unexpected" }), { status: 404 });
+    };
+    vi.stubGlobal("fetch", stub);
+
+    render(<ChatPanel session={emptySession()} onRecord={vi.fn()} />);
+    const textarea = await screen.findByLabelText("message");
+    fireEvent.change(textarea, { target: { value: "hi" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => expect(screen.getByText("Done.")).toBeTruthy());
+    const chip = document.querySelector("[data-usage-chip]");
+    expect(chip).toBeTruthy();
+    expect(chip!.textContent).toContain("↓12");
+    expect(chip!.textContent).toContain("↑34");
+    expect(chip!.textContent).toContain("vendor/model-x");
+    expect(chip!.textContent).toContain("openrouter");
+  });
+
+  it("M5-1: reasoning parts render as a collapsible block, closed once done", async () => {
+    await browser.storage.local.set({
+      junior_bridge_token: "t".repeat(64),
+      junior_default_provider: { providerId: "openrouter", model: "vendor/model-x" },
+    });
+    const reasoningStream = [
+      `data: {"type":"start"}`,
+      `data: {"type":"start-step"}`,
+      `data: {"type":"reasoning-start","id":"r1"}`,
+      `data: {"type":"reasoning-delta","id":"r1","delta":"pondering deeply"}`,
+      `data: {"type":"reasoning-end","id":"r1"}`,
+      `data: {"type":"text-start","id":"1"}`,
+      `data: {"type":"text-delta","id":"1","delta":"The answer."}`,
+      `data: {"type":"text-end","id":"1"}`,
+      `data: {"type":"finish-step"}`,
+      `data: {"type":"finish"}`,
+      `data: [DONE]`,
+    ]
+      .map((line) => `${line}\n\n`)
+      .join("");
+    const stub = async (input: RequestInfo | URL): Promise<Response> => {
+      const url = String(input);
+      if (url.endsWith("/api/status")) {
+        return new Response(JSON.stringify(STATUS), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.endsWith("/api/chat")) {
+        return new Response(reasoningStream, {
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
+      return new Response(JSON.stringify({ error: "unexpected" }), { status: 404 });
+    };
+    vi.stubGlobal("fetch", stub);
+
+    render(<ChatPanel session={emptySession()} onRecord={vi.fn()} />);
+    const textarea = await screen.findByLabelText("message");
+    fireEvent.change(textarea, { target: { value: "think hard" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => expect(screen.getByText("The answer.")).toBeTruthy());
+    const block = document.querySelector<HTMLDetailsElement>('details[data-reasoning="done"]');
+    expect(block).toBeTruthy();
+    expect(block!.open).toBe(false); // collapsed once the reasoning completes
+    block!.open = true;
+    expect(block!.textContent).toContain("pondering deeply");
+  });
+
+  it("M5-1: the empty state offers example prompts that fill the composer", async () => {
+    await browser.storage.local.set({
+      junior_bridge_token: "t".repeat(64),
+      junior_default_provider: { providerId: "openrouter", model: "vendor/model-x" },
+    });
+    vi.stubGlobal("fetch", stubFetch());
+
+    render(<ChatPanel session={emptySession()} onRecord={vi.fn()} />);
+    await screen.findByText("Ask anything, or toggle Agent and give Junior a goal in this tab.");
+    fireEvent.click(screen.getByRole("button", { name: "Summarize this page" }));
+    const textarea = screen.getByLabelText("message") as HTMLTextAreaElement;
+    expect(textarea.value).toBe("Summarize this page");
+    // Nothing was sent — picking only fills the draft.
+    expect(chatRequests).toHaveLength(0);
+  });
+
+  it("M5-1: a failed turn shows the error with a Retry that re-requests", async () => {
+    await browser.storage.local.set({
+      junior_bridge_token: "t".repeat(64),
+      junior_default_provider: { providerId: "openrouter", model: "vendor/model-x" },
+    });
+    let calls = 0;
+    const stub = async (input: RequestInfo | URL): Promise<Response> => {
+      const url = String(input);
+      if (url.endsWith("/api/status")) {
+        return new Response(JSON.stringify(STATUS), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.endsWith("/api/chat")) {
+        calls += 1;
+        if (calls === 1) {
+          return new Response(JSON.stringify({ error: "all providers failed" }), { status: 502 });
+        }
+        return new Response(UI_STREAM, { headers: { "content-type": "text/event-stream" } });
+      }
+      return new Response(JSON.stringify({ error: "unexpected" }), { status: 404 });
+    };
+    vi.stubGlobal("fetch", stub);
+
+    render(<ChatPanel session={emptySession()} onRecord={vi.fn()} />);
+    const textarea = await screen.findByLabelText("message");
+    fireEvent.change(textarea, { target: { value: "hi" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("all providers failed");
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => {
+      expect(screen.getByRole("strong").textContent).toBe("world");
+    });
+    expect(calls).toBe(2);
   });
 });

@@ -20,14 +20,20 @@ import {
   type LanguageModel,
   type UIMessage,
 } from "ai";
-import { ChatRequestBodySchema } from "@junior/protocol";
+import { ChatRequestBodySchema, type ChatMessageMetadata } from "@junior/protocol";
 import type { Logger } from "../auth.js";
 import { loadConfig } from "../config.js";
 import type { Dispatcher } from "../dispatcher/queue.js";
 import { UnknownProviderError, resolveModel } from "./registry.js";
 import { AllProvidersFailedError, buildCandidateChain, firstSuccessfulStream } from "./fallback.js";
 import { browserTools } from "./tools.js";
-import { CliSessionMap, prepareCliTurn, runCliTurn, type SpawnFn } from "./engine-cli.js";
+import {
+  CliSessionMap,
+  cliResultToMetadata,
+  prepareCliTurn,
+  runCliTurn,
+  type SpawnFn,
+} from "./engine-cli.js";
 
 /** v7: `system` was renamed `instructions` (old name is a deprecated fallback). */
 const JUNIOR_SYSTEM =
@@ -93,7 +99,7 @@ export function chatRoutes(deps: ChatDeps) {
         execute: async ({ writer }) => {
           writer.write({ type: "start" });
           writer.write({ type: "start-step" });
-          await runCliTurn(
+          const outcome = await runCliTurn(
             {
               ...plan.options,
               // Panel Stop / client disconnect kills the spawned CLI (M4-5) —
@@ -102,6 +108,14 @@ export function chatRoutes(deps: ChatDeps) {
             },
             (chunk) => writer.write(chunk),
           );
+          // M5-1 usage chips: the result event's usage rides as message metadata
+          // (the manual-write equivalent of toUIMessageStream's messageMetadata).
+          if (outcome.result !== null && !outcome.result.isError) {
+            writer.write({
+              type: "message-metadata",
+              messageMetadata: cliResultToMetadata(outcome.result, body.data.model),
+            });
+          }
           writer.write({ type: "finish-step" });
           writer.write({ type: "finish" });
         },
@@ -142,6 +156,42 @@ export function chatRoutes(deps: ChatDeps) {
         ? JUNIOR_AGENT_SYSTEM
         : JUNIOR_SYSTEM;
 
+    // M5-1 usage chips: `finish` carries totalUsage + response.modelId — attach them as
+    // message metadata (v7 docs: the messageMetadata callback on toUIMessageStream).
+    // The metadata lands ON the finish chunk itself, not as a separate chunk (observed
+    // on the wire). response.modelId is provider-dependent — fall back to the requested
+    // model id (the CLI engine does the same).
+    const metadataFrom =
+      (providerId: string, requestedModel: string) =>
+      ({
+        part,
+      }: {
+        part: { type: string; totalUsage?: unknown; response?: { modelId?: unknown } };
+      }) => {
+        if (part.type !== "finish") return undefined;
+        const usage = (part.totalUsage ?? {}) as Record<string, unknown>;
+        const num = (v: unknown) => (typeof v === "number" ? v : undefined);
+        const model =
+          typeof part.response?.modelId === "string" && part.response.modelId
+            ? part.response.modelId
+            : requestedModel;
+        return {
+          usage: {
+            ...(num(usage.inputTokens) !== undefined
+              ? { inputTokens: num(usage.inputTokens) }
+              : {}),
+            ...(num(usage.outputTokens) !== undefined
+              ? { outputTokens: num(usage.outputTokens) }
+              : {}),
+            ...(num(usage.totalTokens) !== undefined
+              ? { totalTokens: num(usage.totalTokens) }
+              : {}),
+          },
+          model,
+          provider: providerId,
+        } satisfies ChatMessageMetadata;
+      };
+
     // The requested provider first, then configured chain entries (§4.5). A thunk that
     // throws (stale chain entry → UnknownProviderError) counts as a failed attempt.
     // Every candidate runs the SAME agent options — a mid-chain fallback must not
@@ -168,6 +218,7 @@ export function chatRoutes(deps: ChatDeps) {
           toUIMessageStream({
             stream: buildStream(primaryModel, body.data.provider).stream,
             onError: toErrorText,
+            messageMetadata: metadataFrom(body.data.provider, body.data.model),
           }),
         ...candidates
           .filter((id) => id !== body.data.provider)
@@ -176,6 +227,7 @@ export function chatRoutes(deps: ChatDeps) {
             return toUIMessageStream({
               stream: buildStream(model, providerId).stream,
               onError: toErrorText,
+              messageMetadata: metadataFrom(providerId, body.data.model),
             });
           }),
       ]);

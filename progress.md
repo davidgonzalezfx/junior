@@ -5,7 +5,7 @@
 
 **Updated:** 2026-10-24
 **Current milestone:** M4 MCP server + agent paths (5/5 — complete)
-**Current task:** none claimed (**next up: M5-1** per plan §8: usage chips, tool-call cards, reasoning collapse, empty/error states, bridge-offline banner)
+**Current task:** **M5-1** (session 2026-10-24) — usage chips, tool-call cards, reasoning collapse, empty/error/loading states, bridge-offline banner (plan §5.3 chat block, §8 M5.1)
 **Current blockers:** none
 
 ---
