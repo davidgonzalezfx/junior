@@ -100,6 +100,10 @@ describe("T5a — iframes in the agent tab", () => {
       expect(play).toBe(`f${PLAYER_FRAME}:0`);
       const res = await h.dispatch({ kind: "click", target: play });
       expect(res).toMatchObject({ status: "ok" });
+      // T5b: the result names the element, how it matched, and the frame.
+      expect(String(res.result)).toMatch(
+        new RegExp(`Click performed on <button>.*matched by index.* in iframe f${PLAYER_FRAME} `),
+      );
       expect(h.tab.frameDocument(PLAYER_FRAME).getElementById("player-state")!.textContent).toBe(
         "Player playing",
       );

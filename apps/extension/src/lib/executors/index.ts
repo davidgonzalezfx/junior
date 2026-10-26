@@ -342,7 +342,10 @@ export async function executeAction(
       ? { op: "click", target, expect: probe.facts as InPageClickFacts }
       : { op: "type", target, text: text ?? "", expect: probe.facts as InPageFieldFacts };
   const res = await env.runInPage(tab.id, act, ...inFrame);
-  return res.ok ? { status: "ok", result: res.message } : errorOutcome(res.error);
+  if (!res.ok) return errorOutcome(res.error);
+  // T5b: say where it landed, so the model can notice a wrong hit.
+  const where = frameId === undefined ? "" : ` in iframe f${frameId} (${frameUrl ?? ""})`;
+  return { status: "ok", result: `${res.message}${where}` };
 }
 
 /** deny beats ask beats allow; among asks the LAST one (the frame's) is shown. */

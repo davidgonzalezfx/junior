@@ -37,11 +37,10 @@ describe("resolver strategies", () => {
     delete win.__junior_dom_map_url;
   });
 
-  it("1. index match via data-highlight-index, then __junior_dom_map", async () => {
+  it("1. index match via __junior_dom_map only (the attribute can be stale)", async () => {
     setBody(`<button data-highlight-index="7">Save</button>`);
     const res = await juniorActionInPage({ op: "click", target: "[7]", expect: null });
-    expect(res.ok).toBe(true);
-    if (res.ok) expect(res.message).toContain("Click performed on");
+    expect(res.ok).toBe(false);
 
     const mapped = document.createElement("button");
     mapped.textContent = "Mapped";

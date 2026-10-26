@@ -92,206 +92,267 @@ export async function juniorActionInPage(args: InPageRequest): Promise<InPageRes
     }
   }
 
-  // ── Multi-strategy resolver (Autono background.js:4222–4340) ────────────────
-  // Strategies in order: 1 index map → 2 CSS → 3 XPath → 4 semantic attributes →
-  // 5 associated <label> → 6 visible text (3 passes) → 7 heuristic interactivity
-  // (click pool only) → 8 input fallback (type pool only).
-  function findInteractiveElement(target: string, isInputOnly: boolean): Element | null {
-    const rawTarget = String(target || "").trim();
-    // Empty target is only meaningful for the input pool (strategy 8: focused field
-    // / single visible input). Attribute/text matches below require a non-empty
-    // target, so "" can't accidentally match an attribute-less field.
+  // ── Element resolver (Autono background.js:4222–4340, made strict in T5b) ────
+  // Precise targets never fall through to fuzzy matching — a miss is an error:
+  // - index (`12`, `[12]`, `#12`, `el-12`): the URL-stamped __junior_dom_map only.
+  //   buildDomTree never removes old `data-highlight-index` attributes, so after
+  //   a re-read the attribute can sit on an element that index no longer names.
+  // - CSS selector / XPath: first VISIBLE match, open shadow roots included.
+  // Free text (or `text:…`) runs the fuzzy passes, exact before partial:
+  // attribute → text → <label> → attribute substring → text prefix → text
+  // substring → heuristic interactivity (click) / input fallback (type).
+  type Resolved = { el: Element; strategy: string } | { error: string };
+
+  function shadowRoots(): (Document | ShadowRoot)[] {
+    const roots: (Document | ShadowRoot)[] = [document];
+    for (let i = 0; i < roots.length; i++) {
+      const root = roots[i] as Document | ShadowRoot;
+      for (const el of Array.from(root.querySelectorAll("*"))) {
+        if (el.shadowRoot) roots.push(el.shadowRoot);
+      }
+    }
+    return roots;
+  }
+
+  /** querySelectorAll across the document and every open shadow root (throws on
+   * an invalid selector, like querySelectorAll). */
+  function deepQueryAll(selector: string): Element[] {
+    return shadowRoots().flatMap((r) => Array.from(r.querySelectorAll(selector)));
+  }
+
+  function isCssSelector(t: string): boolean {
+    try {
+      document.querySelector(t);
+    } catch {
+      return false; // "Save & continue", "1.5x", "Next ›" are not selectors
+    }
+    if (/[#[\]>~+*=():]/.test(t)) return true;
+    // Words and dots only ("Play", "Sign in", "example.com"): a selector only
+    // when every compound starts with a class or a lowercase known tag name.
+    return t.split(/\s+/).every((part) => {
+      const type = part.split(".")[0] ?? "";
+      if (!type) return true;
+      if (type !== type.toLowerCase()) return false;
+      if (type.includes("-")) return document.getElementsByTagName(type).length > 0;
+      return !(document.createElement(type) instanceof HTMLUnknownElement);
+    });
+  }
+
+  function isXPath(t: string): boolean {
+    if (!/^(\/|\.\/|\(|xpath=)/i.test(t)) return false;
+    try {
+      document.evaluate(t.replace(/^xpath=/i, ""), document, null, XPathResult.ANY_TYPE, null);
+      return true;
+    } catch {
+      return false; // "(1) Notifications" is text
+    }
+  }
+
+  function missed(kind: string, t: string, hidden: number): Resolved {
+    const quoted = JSON.stringify(t.slice(0, 80));
+    const why = hidden ? ` (${hidden} hidden match${hidden === 1 ? "" : "es"})` : "";
+    return {
+      error:
+        `${kind} ${quoted} matched nothing visible${why}. Nothing was clicked — there is no ` +
+        `fallback to text matching. read_page for current targets, prefix "text:" to match ` +
+        `visible text, or use the media tool for video/audio.`,
+    };
+  }
+
+  function findInteractiveElement(target: string, isInputOnly: boolean): Resolved | null {
+    let rawTarget = String(target || "").trim();
+    let freeText = false;
+    if (/^text:/i.test(rawTarget)) {
+      rawTarget = rawTarget.slice(5).trim();
+      freeText = true;
+    }
+    // Empty target is only meaningful for the input pool (focused field / single
+    // visible input), so "" can't accidentally match an attribute-less field.
     if (!rawTarget && !isInputOnly) return null;
     const lowerTarget = rawTarget.toLowerCase();
 
-    // 1. Index match ([12], #12, 12, el-12)
-    const indexMatch = rawTarget.match(/^(?:\[|#|el-)?(\d+)(?:\])?$/);
-    if (indexMatch && indexMatch[1] !== undefined) {
-      const idx = parseInt(indexMatch[1], 10);
-      const indexedEl = document.querySelector(
-        `[data-highlight-index="${idx}"], [data-index="${idx}"], [highlight-index="${idx}"]`,
-      );
-      if (indexedEl && isVisible(indexedEl)) return indexedEl;
-      // The map is a cache stamped with the URL it was built for (vendored
-      // buildDomTree.js) — a SPA URL change invalidates it (plan §5.2).
-      const win = window as unknown as {
-        __junior_dom_map?: Map<number, Element>;
-        __junior_dom_map_url?: string;
-      };
-      const map = win.__junior_dom_map;
-      if (map && win.__junior_dom_map_url === window.location.href && map.has(idx)) {
-        const el = map.get(idx);
-        if (el && isVisible(el)) return el;
+    if (!freeText) {
+      const indexMatch = rawTarget.match(/^(?:\[|#|el-)?(\d+)(?:\])?$/);
+      if (indexMatch && indexMatch[1] !== undefined) {
+        const idx = parseInt(indexMatch[1], 10);
+        // The map is a cache stamped with the URL it was built for (vendored
+        // buildDomTree.js) — a SPA URL change invalidates it (plan §5.2).
+        const win = window as unknown as {
+          __junior_dom_map?: Map<number, Element>;
+          __junior_dom_map_url?: string;
+        };
+        const map = win.__junior_dom_map;
+        const el = map && win.__junior_dom_map_url === window.location.href ? map.get(idx) : null;
+        if (!el || !el.isConnected)
+          return { error: `Index ${idx} not found — read_page again for current targets.` };
+        if (!isVisible(el))
+          return {
+            error: `Index ${idx} is no longer visible — read_page again for current targets.`,
+          };
+        return { el, strategy: "index" };
       }
-    }
 
-    // 2. Safe CSS selector
-    if (!rawTarget.includes("\n")) {
-      try {
-        const el = document.querySelector(rawTarget);
-        if (el && isVisible(el)) return el;
-      } catch {
-        /* invalid selector — fall through */
-      }
-    }
-
-    // 3. XPath locator
-    if (
-      rawTarget.startsWith("/") ||
-      rawTarget.startsWith("./") ||
-      rawTarget.startsWith("(") ||
-      rawTarget.toLowerCase().startsWith("xpath=")
-    ) {
-      try {
-        const cleanXpath = rawTarget.replace(/^xpath=/i, "");
+      if (isXPath(rawTarget)) {
         const res = document.evaluate(
-          cleanXpath,
+          rawTarget.replace(/^xpath=/i, ""),
           document,
           null,
-          XPathResult.FIRST_ORDERED_NODE_TYPE,
+          XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
           null,
         );
-        if (res.singleNodeValue && isVisible(res.singleNodeValue as Element))
-          return res.singleNodeValue as Element;
-      } catch {
-        /* invalid xpath — fall through */
+        for (let i = 0; i < res.snapshotLength; i++) {
+          const node = res.snapshotItem(i) as Element | null;
+          if (node && isVisible(node)) return { el: node, strategy: "xpath" };
+        }
+        return missed("XPath", rawTarget, res.snapshotLength);
+      }
+
+      if (!rawTarget.includes("\n") && isCssSelector(rawTarget)) {
+        const matches = deepQueryAll(rawTarget);
+        const el = matches.find(isVisible);
+        if (el) return { el, strategy: "css" };
+        return missed("Selector", rawTarget, matches.length);
       }
     }
 
-    // Candidate pools
+    // Candidate pools (open shadow roots included)
     const CLICK_POOL =
-      'button, a, input, textarea, select, [role="button"], [role="link"], [role="tab"], [role="menuitem"], [role="checkbox"], [role="radio"], [role="switch"], [role="textbox"], [role="searchbox"], [role="combobox"], [contenteditable="true"], summary, label, [tabindex]:not([tabindex="-1"])';
+      'button, a, input, textarea, select, video, audio, [role="button"], [role="link"], [role="tab"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="option"], [role="checkbox"], [role="radio"], [role="switch"], [role="slider"], [role="textbox"], [role="searchbox"], [role="combobox"], [contenteditable="true"], summary, label, [tabindex]:not([tabindex="-1"])';
     const INPUT_POOL =
       'input:not([type="hidden"]), textarea, [contenteditable="true"], [role="textbox"], [role="searchbox"], [role="combobox"], select';
-    const candidates = Array.from(document.querySelectorAll(isInputOnly ? INPUT_POOL : CLICK_POOL));
+    const candidates = deepQueryAll(isInputOnly ? INPUT_POOL : CLICK_POOL).filter(isVisible);
+    if (!lowerTarget) return inputFallback(candidates);
 
-    // 4. Semantic attribute match (id, name, placeholder, aria-label, data-testid, title, alt, value)
-    for (const el of candidates) {
-      if (!isVisible(el)) continue;
-      const id = (el.id || "").toLowerCase();
-      const name = attr(el, "name").toLowerCase();
-      const ph = attr(el, "placeholder").toLowerCase();
-      const aria = attr(el, "aria-label").toLowerCase();
-      const testId = (
+    // Exact attribute values, then substrings — for each candidate in order.
+    // [id, name, placeholder, aria-label, test id, title, alt, value]
+    const attrValues = (el: Element) => [
+      (el.id || "").toLowerCase(),
+      attr(el, "name").toLowerCase(),
+      attr(el, "placeholder").toLowerCase(),
+      attr(el, "aria-label").toLowerCase(),
+      (
         attr(el, "data-testid") ||
         attr(el, "data-qa") ||
-        attr(el, "data-cy")
-      ).toLowerCase();
-      const title = attr(el, "title").toLowerCase();
-      const alt = attr(el, "alt").toLowerCase();
-      const val = ((el as HTMLInputElement).value || "").toLowerCase();
-
-      if (
-        lowerTarget &&
-        (id === lowerTarget ||
-          name === lowerTarget ||
-          ph === lowerTarget ||
-          aria === lowerTarget ||
-          testId === lowerTarget ||
-          title === lowerTarget ||
-          val === lowerTarget)
-      ) {
-        return el;
-      }
-      if (
-        lowerTarget &&
-        ((ph && ph.includes(lowerTarget)) ||
-          (aria && aria.includes(lowerTarget)) ||
-          (name && name.includes(lowerTarget)) ||
-          (title && title.includes(lowerTarget)) ||
-          (testId && testId.includes(lowerTarget)) ||
-          (alt && alt.includes(lowerTarget)))
-      ) {
-        return el;
-      }
+        attr(el, "data-cy") ||
+        attr(el, "data-purpose")
+      ).toLowerCase(),
+      attr(el, "title").toLowerCase(),
+      attr(el, "alt").toLowerCase(),
+      ((el as HTMLInputElement).value || "").toLowerCase(),
+    ];
+    for (const el of candidates) {
+      if (attrValues(el).includes(lowerTarget)) return { el, strategy: "attribute" };
+    }
+    const textOfCandidate = (el: Element) => clean(textOf(el)).toLowerCase();
+    for (const el of candidates) {
+      if (textOfCandidate(el) === lowerTarget) return { el, strategy: "text" };
     }
 
-    // 5. Associated <label> match
+    // Associated <label> match
     if (isInputOnly || candidates.some((c) => c.tagName === "INPUT" || c.tagName === "TEXTAREA")) {
-      const labels = Array.from(document.querySelectorAll("label"));
+      const labels = deepQueryAll("label");
       for (const lbl of labels) {
         if (!isVisible(lbl)) continue;
         const lblText = clean(textOf(lbl)).toLowerCase();
-        if (lowerTarget && (lblText.includes(lowerTarget) || lowerTarget.includes(lblText))) {
+        if (lblText && (lblText.includes(lowerTarget) || lowerTarget.includes(lblText))) {
           const htmlFor = attr(lbl, "for");
           if (htmlFor) {
             const inp = document.getElementById(htmlFor);
-            if (inp && isVisible(inp)) return inp;
+            if (inp && isVisible(inp)) return { el: inp, strategy: "label" };
           }
           const innerInp = lbl.querySelector("input, textarea, select");
-          if (innerInp && isVisible(innerInp)) return innerInp;
+          if (innerInp && isVisible(innerInp)) return { el: innerInp, strategy: "label" };
         }
       }
     }
 
-    // 6. Smart visible text match (exact → prefix/suffix → substring)
     for (const el of candidates) {
-      if (!isVisible(el)) continue;
-      const txt = clean(textOf(el)).toLowerCase();
-      if (lowerTarget && txt === lowerTarget) return el;
+      if (attrValues(el).some((v, i) => i > 0 && i < 7 && v.includes(lowerTarget)))
+        return { el, strategy: "attribute" };
+    }
+    // Reverse containment ("Sign up now" → a "Sign up" button) needs a few
+    // characters, or a lone "0" link would match any target containing a zero.
+    const contains = (outer: string, inner: string) => inner.length >= 3 && outer.includes(inner);
+    for (const el of candidates) {
+      const txt = textOfCandidate(el);
+      if (txt && (txt.startsWith(lowerTarget) || (txt.length >= 3 && lowerTarget.startsWith(txt))))
+        return { el, strategy: "text" };
     }
     for (const el of candidates) {
-      if (!isVisible(el)) continue;
-      const txt = clean(textOf(el)).toLowerCase();
-      if (lowerTarget && txt && (txt.startsWith(lowerTarget) || lowerTarget.startsWith(txt)))
-        return el;
-    }
-    for (const el of candidates) {
-      if (!isVisible(el)) continue;
-      const txt = clean(textOf(el)).toLowerCase();
-      if (lowerTarget && txt && (txt.includes(lowerTarget) || lowerTarget.includes(txt))) return el;
+      const txt = textOfCandidate(el);
+      if (txt && (txt.includes(lowerTarget) || contains(lowerTarget, txt)))
+        return { el, strategy: "text" };
     }
 
-    // 7. Heuristic interactivity (click pool only — pointer cursor / class / onclick)
+    // Heuristic interactivity (click pool only — pointer cursor / class / onclick)
     if (!isInputOnly) {
-      const allDivs = Array.from(document.querySelectorAll("div, span, p, li, td, th"));
+      const allDivs = deepQueryAll("div, span, p, li, td, th");
       for (const el of allDivs) {
         if (!isVisible(el)) continue;
         const style = window.getComputedStyle(el);
         const hasPointer = style.cursor === "pointer";
         const hasClass = /\b(btn|button|clickable|menu-item|item|entry|link|submit|search)\b/i.test(
-          el.className || "",
+          typeof el.className === "string" ? el.className : "",
         );
         if (hasPointer || hasClass || typeof (el as HTMLElement).onclick === "function") {
-          const txt = clean(textOf(el)).toLowerCase();
-          if (
-            lowerTarget &&
-            (txt === lowerTarget || (txt && txt.includes(lowerTarget) && txt.length < 90))
-          ) {
+          const txt = textOfCandidate(el);
+          if (txt === lowerTarget || (txt && txt.includes(lowerTarget) && txt.length < 90)) {
             const btnParent = el.closest('button, a, [role="button"]');
-            return btnParent || el;
+            return { el: btnParent || el, strategy: "heuristic" };
           }
         }
       }
+      return null;
     }
+    return inputFallback(candidates);
+  }
 
-    // 8. Input fallback (type pool only): focused field, else the single visible input
-    if (isInputOnly) {
-      const active = document.activeElement;
-      if (
-        active &&
-        (active.tagName === "INPUT" ||
-          active.tagName === "TEXTAREA" ||
-          (active as HTMLElement).isContentEditable)
-      ) {
-        return active;
-      }
-      const visibleInputs = candidates.filter((c) => {
-        if (!isVisible(c)) return false;
-        const type = attr(c, "type").toLowerCase();
-        return (
-          type !== "hidden" &&
-          type !== "submit" &&
-          type !== "button" &&
-          type !== "checkbox" &&
-          type !== "radio"
-        );
-      });
-      const first = visibleInputs[0];
-      if (visibleInputs.length === 1 && first) return first;
+  /** Type pool only: the focused field, else the single visible text input. */
+  function inputFallback(candidates: Element[]): Resolved | null {
+    const active = document.activeElement;
+    if (
+      active &&
+      (active.tagName === "INPUT" ||
+        active.tagName === "TEXTAREA" ||
+        (active as HTMLElement).isContentEditable)
+    ) {
+      return { el: active, strategy: "focused field" };
     }
-
+    const visibleInputs = candidates.filter((c) => {
+      const type = attr(c, "type").toLowerCase();
+      return (
+        type !== "hidden" &&
+        type !== "submit" &&
+        type !== "button" &&
+        type !== "checkbox" &&
+        type !== "radio"
+      );
+    });
+    const first = visibleInputs[0];
+    if (visibleInputs.length === 1 && first) return { el: first, strategy: "only field" };
     return null;
+  }
+
+  /** `<a> "Home" → https://…/ (matched by text)` — what a click/type landed on. */
+  function describeHit(el: Element, strategy: string): string {
+    const tag = String(el.tagName || "").toLowerCase();
+    const label = clean(
+      textOf(el) ||
+        attr(el, "aria-label") ||
+        attr(el, "title") ||
+        attr(el, "placeholder") ||
+        attr(el, "name") ||
+        (el as HTMLInputElement).value ||
+        "",
+    ).slice(0, 60);
+    const anchor = el.closest("a[href]");
+    const href = anchor ? absolute(attr(anchor, "href")).slice(0, 200) : "";
+    return (
+      `<${tag}>` +
+      (label ? ` ${JSON.stringify(label)}` : "") +
+      (href ? ` → ${href}` : "") +
+      ` (matched by ${strategy})`
+    );
   }
 
   function clickFactsOf(el: Element): InPageClickFacts {
@@ -339,7 +400,14 @@ export async function juniorActionInPage(args: InPageRequest): Promise<InPageRes
     };
   }
 
-  function notFound(kind: string, target: string): InPageResponse {
+  function resolve(
+    target: string,
+    isInputOnly: boolean,
+  ): { el: Element; strategy: string } | { ok: false; error: string } {
+    const found = findInteractiveElement(target, isInputOnly);
+    if (found && "el" in found) return found;
+    if (found) return { ok: false, error: found.error };
+    const kind = isInputOnly ? "Text field" : "Element";
     return {
       ok: false,
       error: `${kind} not found: ${JSON.stringify(clean(target).slice(0, 60))}.`,
@@ -359,18 +427,20 @@ export async function juniorActionInPage(args: InPageRequest): Promise<InPageRes
   }
 
   if (args.op === "probe") {
-    const el = findInteractiveElement(args.target, args.mode === "type");
-    if (!el) return notFound(args.mode === "type" ? "Text field" : "Element", args.target);
+    const hit = resolve(args.target, args.mode === "type");
+    if (!("el" in hit)) return hit;
+    const el = hit.el;
     return {
       ok: true,
-      message: "probed",
+      message: describeHit(el, hit.strategy),
       facts: args.mode === "type" ? fieldFactsOf(el) : clickFactsOf(el),
     };
   }
 
   if (args.op === "click") {
-    const el = findInteractiveElement(args.target, false);
-    if (!el) return notFound("Element", args.target);
+    const hit = resolve(args.target, false);
+    if (!("el" in hit)) return hit;
+    const el = hit.el;
     const facts = clickFactsOf(el);
 
     // Guard contract (§6.3-1): the card showed real facts — refuse if the element
@@ -434,22 +504,14 @@ export async function juniorActionInPage(args: InPageRequest): Promise<InPageRes
       /* a listener may throw — the synthetic sequence already ran */
     }
 
-    // Page-derived fragment: ≤ 60 chars, no newlines, JSON-encoded.
-    const label =
-      textOf(el) ||
-      (el as HTMLInputElement).value ||
-      attr(el, "placeholder") ||
-      attr(el, "aria-label") ||
-      args.target;
-    return {
-      ok: true,
-      message: `Click performed on ${JSON.stringify(clean(label || args.target).slice(0, 60))}`,
-    };
+    // Page-derived fragments: label ≤ 60 chars, no newlines, JSON-encoded.
+    return { ok: true, message: `Click performed on ${describeHit(el, hit.strategy)}` };
   }
 
   // op === "type"
-  const el = findInteractiveElement(args.target, true);
-  if (!el) return notFound("Text field", args.target);
+  const hit = resolve(args.target, true);
+  if (!("el" in hit)) return hit;
+  const el = hit.el;
   const facts = fieldFactsOf(el);
 
   const expect = args.expect;
@@ -559,9 +621,8 @@ export async function juniorActionInPage(args: InPageRequest): Promise<InPageRes
     }
   }
 
-  const label = attr(el, "placeholder") || attr(el, "name") || attr(el, "id") || args.target;
   return {
     ok: true,
-    message: `Typed text in field ${JSON.stringify(clean(label).slice(0, 60))}: ${JSON.stringify(clean(cleanText).slice(0, 30))}`,
+    message: `Typed ${JSON.stringify(clean(cleanText).slice(0, 30))} into ${describeHit(el, hit.strategy)}`,
   };
 }
