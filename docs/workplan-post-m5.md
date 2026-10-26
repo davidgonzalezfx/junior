@@ -134,7 +134,11 @@
     `\n`, keep the trailing fragment (or `readline.createInterface` like `mcp/stdio-proxy.ts:137`).
     Regression: feed the parser chunks split mid-JSON (the existing tests use tidy chunks — that's
     why it survived).
-- [ ] **T3 — Approval-timeout cleanup symmetry** *(R§3.2)*
+- [x] **T3 — Approval-timeout cleanup symmetry** *(R§3.2)*
+  **DONE 2026-10-26 (commit ff74514):** `requestApprovalItem` now drops the future + the buffered
+  card on lapse (both dispatch-time and standalone `requestApproval` route through it); `dispose()`
+  resolves approvals with null too, so it hits the same (then no-op) cleanup — consistent. 120 s
+  window unchanged. Fail-first: fake-timer block in `dispatcher/queue.test.ts` 6/9 red → 9/9 green.
   - `apps/bridge/src/dispatcher/queue.ts:222-238` + `:188-195`: timeout denies the caller but
     leaves the queued card + orphaned future → a later approve returns `delivered: true` for a
     permission that was already denied. Fix: mirror the action path's cleanup (`futures.delete` +
@@ -272,3 +276,8 @@ U…                       (optional)
   line, 7-byte chunks, CRLF, no final newline); gates green (166 protocol + 237 bridge + 290 ext +
   13 tests incl. 2 gated skip + 5 spikes + 6 testkit; read-page flake + one engine-cli.route
   5 s timeout under full parallel load, both rerun green) · fcc8e23
+- 2026-10-26 — T3 done · approval-timeout cleanup (future + buffered card dropped on lapse,
+  mirroring the action path) · fail-first fake-timer tests red 6/9 → green 9/9 (stale card not
+  re-delivered, late approve delivered:false, no leaks, item + plain paths, in-window answer still
+  honoured); gates green (166 protocol + 246 bridge + 290 ext + 13 tests incl. 2 gated skip +
+  5 spikes + 6 testkit) · ff74514
