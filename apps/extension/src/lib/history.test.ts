@@ -6,12 +6,14 @@ import { fakeBrowser } from "wxt/testing/fake-browser";
 import type { UIMessage } from "ai";
 import {
   MAX_SESSIONS,
+  INTERRUPTED_TOOL_ERROR,
   SessionStore,
   WRITE_DEBOUNCE_MS,
   deleteSession,
   deriveTitle,
   emptySession,
   exportFilename,
+  finalizeInterruptedToolParts,
   loadSessions,
   parseSessions,
   renameSession,
@@ -239,6 +241,70 @@ describe("sanitizeSessionMessages (M5-2)", () => {
     const [first, tool] = sanitizeSessionMessages(messages, 20_000);
     expect(first).toBe(messages[0]); // same reference — untouched
     expect((tool!.parts[1] as { output: string }).output).toBe("x".repeat(100));
+  });
+});
+
+// --- M5-10: interrupted-tool finalization ---------------------------------------
+
+function toolMessage(state: string, extra: Record<string, unknown> = {}): UIMessage {
+  return {
+    id: "a-tool",
+    role: "assistant",
+    parts: [
+      { type: "text", text: "on it" },
+      {
+        type: "tool-navigate",
+        toolCallId: "t1",
+        state,
+        input: { url: "https://example.com/" },
+        ...extra,
+      } as unknown as UIMessage["parts"][number],
+    ],
+  };
+}
+
+describe("finalizeInterruptedToolParts (M5-10)", () => {
+  it("marks a mid-tool part output-error with the interrupted note", () => {
+    const [first, tool] = finalizeInterruptedToolParts([
+      userMsg("go"),
+      toolMessage("input-available"),
+    ]);
+    expect((first!.parts[0] as { text: string }).text).toBe("go");
+    const part = tool!.parts[1] as { state: string; errorText: string };
+    expect(part.state).toBe("output-error");
+    expect(part.errorText).toBe(INTERRUPTED_TOOL_ERROR);
+  });
+
+  it("covers input-streaming too and leaves resolved parts byte-identical", () => {
+    const running = toolMessage("output-available", { output: '{"title":"Example"}' });
+    const streaming = toolMessage("input-streaming");
+    const out = finalizeInterruptedToolParts([running, streaming]);
+    expect(out[0]).toBe(running); // resolved — same reference
+    expect((out[1]!.parts[1] as { state: string }).state).toBe("output-error");
+  });
+
+  it("keeps an errored part (errorText counts as resolved) and empty sessions untouched", () => {
+    const failed = toolMessage("output-error", { errorText: "USER_DENIED: no" });
+    const out = finalizeInterruptedToolParts([failed]);
+    expect(out[0]).toBe(failed);
+    expect(finalizeInterruptedToolParts([])).toEqual([]);
+  });
+});
+
+describe("SessionStore persist-time tool finalization (M5-10)", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("a session persisted mid-tool (panel close) is stored as failed, not running", async () => {
+    const store = new SessionStore();
+    const session = makeSession({ id: "dangling", updatedAt: 5 });
+    session.messages = [toolMessage("input-available")];
+    store.record(session);
+    await vi.advanceTimersByTimeAsync(WRITE_DEBOUNCE_MS);
+    const [stored] = await loadSessions();
+    const part = stored!.messages[0]!.parts[1] as { state: string; errorText: string };
+    expect(part.state).toBe("output-error");
+    expect(part.errorText).toBe(INTERRUPTED_TOOL_ERROR);
   });
 });
 

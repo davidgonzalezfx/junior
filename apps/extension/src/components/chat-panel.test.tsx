@@ -594,4 +594,98 @@ describe("ChatPanel", () => {
     });
     expect(calls).toBe(2);
   });
+
+  it("M5-10: a stream that dies mid-tool marks the tool part errored, not running", async () => {
+    await browser.storage.local.set({
+      junior_bridge_token: "t".repeat(64),
+      junior_default_provider: { providerId: "openrouter", model: "vendor/model-x" },
+    });
+    // Tool call arrives, the stream then errors before any tool output — the
+    // pre-fix behavior left the card at "running…" in the live view and in history.
+    const dyingStream = [
+      `data: {"type":"start"}`,
+      `data: {"type":"start-step"}`,
+      `data: {"type":"tool-input-available","toolCallId":"call_1","toolName":"navigate","input":{"url":"https://example.com/"}}`,
+      `data: {"type":"error","errorText":"boom mid-tool"}`,
+      `data: [DONE]`,
+    ]
+      .map((line) => `${line}\n\n`)
+      .join("");
+    const stub = async (input: RequestInfo | URL): Promise<Response> => {
+      const url = String(input);
+      if (url.endsWith("/api/status")) {
+        return new Response(JSON.stringify(STATUS), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.endsWith("/api/chat")) {
+        return new Response(dyingStream, { headers: { "content-type": "text/event-stream" } });
+      }
+      return new Response(JSON.stringify({ error: "unexpected" }), { status: 404 });
+    };
+    vi.stubGlobal("fetch", stub);
+    const onRecord = vi.fn();
+
+    render(<ChatPanel session={emptySession()} onRecord={onRecord} />);
+    fireEvent.click(await screen.findByLabelText("Agent mode"));
+    const textarea = screen.getByLabelText("message");
+    fireEvent.change(textarea, { target: { value: "open example.com" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    // The card flips to the errored state (was stuck at input-available)…
+    await waitFor(() => {
+      const card = screen.getByText("navigate").closest("details");
+      expect(card?.getAttribute("data-state")).toBe("output-error");
+    });
+    expect(screen.getByText("navigate").closest("details")!.textContent).toContain(
+      "interrupted",
+    );
+    // …and the finalized part reaches the history record, not the running one.
+    await waitFor(() => {
+      const last = onRecord.mock.calls.at(-1)?.[0] as UIMessage[] | undefined;
+      const part = last?.[1]?.parts.find((p) => "toolCallId" in p) as
+        | { state: string; errorText: string }
+        | undefined;
+      expect(part?.state).toBe("output-error");
+      expect(part?.errorText).toContain("interrupted");
+    });
+  });
+
+  it("M5-10: a restored session persisted broken (running tool) heals on mount", async () => {
+    await browser.storage.local.set({
+      junior_bridge_token: "t".repeat(64),
+      junior_default_provider: { providerId: "openrouter", model: "vendor/model-x" },
+    });
+    vi.stubGlobal("fetch", stubFetch());
+    const onRecord = vi.fn();
+    const session = emptySession();
+    session.messages = [
+      { id: "u1", role: "user", parts: [{ type: "text", text: "open example.com" }] },
+      {
+        id: "a1",
+        role: "assistant",
+        parts: [
+          { type: "step-start" },
+          {
+            type: "tool-navigate",
+            toolCallId: "call_old",
+            state: "input-available",
+            input: { url: "https://example.com/" },
+          },
+        ],
+      } as unknown as UIMessage,
+    ];
+
+    render(<ChatPanel session={session} onRecord={onRecord} />);
+    await waitFor(() => {
+      const card = screen.getByText("navigate").closest("details");
+      expect(card?.getAttribute("data-state")).toBe("output-error");
+    });
+    // The healed transcript is re-recorded so storage heals too.
+    await waitFor(() => {
+      const last = onRecord.mock.calls.at(-1)?.[0] as UIMessage[] | undefined;
+      const part = last?.[1]?.parts.find((p) => "toolCallId" in p) as { state: string } | undefined;
+      expect(part?.state).toBe("output-error");
+    });
+  });
 });

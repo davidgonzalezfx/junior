@@ -228,6 +228,45 @@ export function sanitizeSessionMessages(
   });
 }
 
+// --- interrupted-tool finalization (M5-10) -------------------------------------
+// A stream that died mid-tool (panel closed, Stop, bridge error) otherwise leaves
+// the tool part at "running…" forever — on screen AND in every restored transcript.
+// Persist-time finalization marks any non-terminal tool part as output-error; the
+// panel applies the same function to the live messages when the stream stops.
+
+const TERMINAL_TOOL_STATES = new Set(["output-available", "output-error"]);
+
+export const INTERRUPTED_TOOL_ERROR = "interrupted — the stream stopped before this tool finished";
+
+function toolPartResolved(part: unknown): boolean {
+  const p = part as { state?: unknown; output?: unknown; errorText?: unknown };
+  if (p.output !== undefined) return true;
+  if (typeof p.errorText === "string" && p.errorText.length > 0) return true;
+  return typeof p.state === "string" && TERMINAL_TOOL_STATES.has(p.state);
+}
+
+/** Mark tool parts that never reached a terminal state (input-streaming /
+ * input-available) as output-error, so a transcript restored after a mid-tool death
+ * shows "failed" instead of a stuck "running…" card. Resolved parts (with output or
+ * errorText, whatever their state stamp) pass through untouched — unchanged messages
+ * keep object identity, and a no-op run returns the ORIGINAL array (callers use
+ * reference equality to detect "something changed"; a fresh array every call would
+ * loop the chat-panel finalize effect forever). */
+export function finalizeInterruptedToolParts(messages: UIMessage[]): UIMessage[] {
+  let anyChanged = false;
+  const next = messages.map((message) => {
+    let changed = false;
+    const parts = message.parts.map((part) => {
+      if (!isToolPartName(part.type) || toolPartResolved(part)) return part;
+      changed = true;
+      anyChanged = true;
+      return { ...part, state: "output-error", errorText: INTERRUPTED_TOOL_ERROR } as typeof part;
+    });
+    return changed ? { ...message, parts } : message;
+  });
+  return anyChanged ? next : messages;
+}
+
 // --- quota-pressure trimming (M5-2) --------------------------------------------
 
 export const QUOTA_DROP_FRACTION = 0.2;
@@ -312,9 +351,13 @@ export class SessionStore {
     const next = [...batch, ...(await loadSessions()).filter((s) => !stale.has(s.id))];
     next.sort((a, b) => b.updatedAt - a.updatedAt);
     const { kept, dropped } = trimSessions(next, this.options.maxSessions ?? MAX_SESSIONS);
-    // Trim tool payloads on the way in (M5-2) so screenshots never pile up in
-    // storage, then let the quota fallback shed oldest sessions if it still fails.
-    const sanitized = kept.map((s) => ({ ...s, messages: sanitizeSessionMessages(s.messages) }));
+    // Finalize interrupted tools (M5-10) and trim tool payloads (M5-2) on the way
+    // in — a panel close mid-tool must persist "failed", not "running…" — then let
+    // the quota fallback shed oldest sessions if the write still fails.
+    const sanitized = kept.map((s) => ({
+      ...s,
+      messages: sanitizeSessionMessages(finalizeInterruptedToolParts(s.messages)),
+    }));
     await saveSessionsDroppingOldest(sanitized, saveSessions, this.options.onTrimmed);
     if (dropped.length > 0) this.options.onTrimmed?.(dropped);
   }

@@ -14,7 +14,7 @@ import {
   type ChatTarget,
   type JuniorUIMessage,
 } from "@/lib/chat";
-import type { StoredSession } from "@/lib/history";
+import { finalizeInterruptedToolParts, type StoredSession } from "@/lib/history";
 import {
   addRecentModel,
   getDefaultProvider,
@@ -134,7 +134,7 @@ function Chat({
     () => createChatTransport(setup.bridgeUrl, setup.token, target, agentMode),
     [setup, target, agentMode],
   );
-  const { messages, sendMessage, regenerate, status, error, stop } = useChat<JuniorUIMessage>({
+  const { messages, sendMessage, regenerate, setMessages, status, error, stop } = useChat<JuniorUIMessage>({
     id: session.id,
     // Storage is typed loose (UIMessage, metadata unknown) — the one honest narrowing;
     // the wire round-trip is validated by the tests that stream message-metadata.
@@ -151,6 +151,16 @@ function Chat({
   useEffect(() => {
     onRecord(messages);
   }, [messages, onRecord]);
+
+  // M5-10 finalize-on-death: a stream that stopped mid-tool (error, Stop, provider
+  // failure) leaves the card at "running…" forever. Once not busy, any non-terminal
+  // tool part is dead — mark it (and the changed messages re-record below). Also
+  // heals a restored session persisted broken by an older build.
+  useEffect(() => {
+    if (busy) return;
+    const next = finalizeInterruptedToolParts(messages);
+    if (next !== messages) setMessages(next);
+  }, [busy, messages, setMessages]);
 
   // Keep the newest message in view while streaming (history virtualization is M2-5).
   // Property assignment, not scrollTo() — jsdom elements have no scrollTo.
