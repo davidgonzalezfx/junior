@@ -193,7 +193,20 @@
     guidance so models target `<video>`/frame-qualified elements instead of giving up.
   - Verify against YouTube (iframe player) AND a same-origin `<video>` page.
   - **Split 2026-10-26 into two stories** (one worker turn each):
-- [ ] **T5a — Frame-aware page actions (iframes)**
+- [x] **T5a — Frame-aware page actions (iframes)**
+  **DONE 2026-10-26 (commit 740014b):** `lib/executors/frames.ts`. Frames are enumerated with
+  `executeScript({allFrames:true})` (results carry `frameId`, so no `webNavigation` permission),
+  for the agent tab only. Child frames the top can't script follow the top output under
+  `--- iframe fN <url> ---` headers with `[fN:i]` indices. `f<frameId>:<target>` routes
+  click/type (and section selectors) through `target.frameIds`, and scroll gains an optional
+  `frame`. Stateless encoding, see decisions.md. Plain/top targets and the top outline are
+  byte-identical, and same-origin iframes keep their plain indices as before. Restricted frames
+  (other extensions, about:) are refused. The guard judges page + frame site, and the stricter
+  verdict wins. T1 note: not frame-related. `juniorReadTextInPage` called a module-scope helper
+  that executeScript doesn't serialize (ReferenceError in-page), now inlined and covered by
+  `serialization.test.ts`. Fail-first: `tests/e2e/harness-frames.test.ts` red 7/8 → green 8/8
+  (the 8th is the unchanged-top-indices invariant, green by design). Serialization red 1/3 →
+  green 3/3. Plus 24 `frames.test.ts` units. Backlog seed: the MCP catalog has no `scroll` tool.
   - `read_page` (all 4 modes), `click`, `type` and `scroll` must reach content inside iframes,
     including **cross-origin** ones (embedded players, payment widgets). Today executors inject into
     the main frame only; the vendored `buildDomTree.js` computes iframe offsets but cannot read a
@@ -367,3 +380,8 @@ U…                       (optional)
   skip + 5 spikes + 6 testkit) · 8b83380
 - 2026-10-26 — T7 real-Chrome verify by the user: screenshot returns a JPEG on a real page (step 1).
 - 2026-10-26 — T5 split into T5a (frame-aware actions) and T5b (media controls).
+- 2026-10-26 — T5a done · frame-aware read_page (4 modes)/click/type/scroll via stateless
+  `f<frameId>:` targets (allFrames enumeration, no new permission; guard judges page + frame) +
+  T1 text/section "Injection returned no result" = non-serialized helper, fixed · fail-first
+  e2e red 7/8 → green 8/8, serialization red 1/3 → 3/3, +24 units; gates green (167 protocol +
+  247 bridge + 356 ext + 25 tests incl. 2 gated skip + 5 spikes + 6 testkit) · 740014b
