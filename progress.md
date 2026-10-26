@@ -5,7 +5,7 @@
 
 **Updated:** 2026-10-26
 **Current milestone:** M5 Polish + hardening — ✅ **complete (5/5)** incl. M5-6/M5-7/M5-9/M5-10 bugfixes; `docs/qa.md` all green (the plan §8 M5 accept gate)
-**Current task:** none claimed (**next up: M6 buffer / backlog seeds** — nothing scheduled; the milestone list M0–M5 is done. Open seeds live at the bottom of this file: element picker, MCP `scroll` tool, cli-engine-as-panel-chat-target, save-before-Test hint, Windows cli-detect legs, real-browser-disconnect Stop leg, slash commands)
+**Current task:** T1 agent tab isolation + wrong-tab fix (docs/workplan-post-m5.md §T1) — session 2026-10-26
 **Current blockers:** none
 
 ---

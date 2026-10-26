@@ -63,6 +63,9 @@ export interface HarnessOptions {
    * panel port (connectPanel), so panel-closed semantics run over the real chain.
    * Default "scripted" keeps the always-listening sink with scripted answers. */
   panel?: "scripted" | "real";
+  /** T1: extra tabs the "user" has open (tab 2, 3, …), each its own FakeTab
+   * realm. Tab 1 stays the agent's tab (`harness.tab`). */
+  otherTabs?: Record<number, { url: string; page: FakePage }>;
 }
 
 export interface Harness {
@@ -71,6 +74,11 @@ export interface Harness {
    * Claude smoke) need it to register against /mcp. */
   readonly token: string;
   readonly tab: FakeTab;
+  /** T1: every harness tab by id (1 = the agent tab). */
+  readonly tabs: ReadonlyMap<number, FakeTab>;
+  /** T1: the "user" focuses a tab — what chrome.tabs.query would report active.
+   * Agent tab isolation must not depend on this. */
+  focusTab(id: number): void;
   /** Live permission mode; the bridge guard and the guard mirror both read it. */
   mode: PermissionMode;
   /** Push one raw queue item and await its ActionResult (the model's view). */
@@ -108,6 +116,15 @@ export async function startHarness(opts: HarnessOptions): Promise<Harness> {
   // so only one harness may run at a time within a worker (tests are sequential).
   const tab = new FakeTab(opts.tabUrl, initialPage);
   for (const [url, page] of Object.entries(opts.pages)) tab.register(url, page);
+  // T1: the user's own tabs. Injection seams focus the TARGET tab's realm first
+  // (executeScript is per-tab), while getActiveTab reports the USER's focused
+  // tab — exactly the chrome state the per-action "active tab" resolution raced
+  // against before the agent tab isolation landed.
+  const tabsById = new Map<number, FakeTab>([[1, tab]]);
+  for (const [id, def] of Object.entries(opts.otherTabs ?? {})) {
+    tabsById.set(Number(id), new FakeTab(def.url, def.page));
+  }
+  let userFocusedId = 1;
 
   const modeHolder: { mode: PermissionMode } = { mode: opts.mode ?? "auto" };
   const cards: ApprovalRequest[] = [];
@@ -175,16 +192,22 @@ export async function startHarness(opts: HarnessOptions): Promise<Harness> {
 
   const env: ExecutorEnv = {
     async getActiveTab() {
-      return { id: 1, url: tab.url, title: tab.document.title, status: "complete" };
+      const t = tabsById.get(userFocusedId);
+      if (!t) return null;
+      return { id: userFocusedId, url: t.url, title: t.document.title, status: "complete" };
     },
-    async runInPage(_tabId, args) {
+    async runInPage(tabId, args) {
+      tabsById.get(tabId)?.focus();
       return await juniorActionInPage(args);
     },
-    async runReadInPage(_tabId, args) {
+    async runReadInPage(tabId, args) {
+      tabsById.get(tabId)?.focus();
       return await juniorReadTextInPage(args);
     },
-    async runBuildDomTree(_tabId, args) {
-      tab.injectBuildDomTree();
+    async runBuildDomTree(tabId, args) {
+      const t = tabsById.get(tabId);
+      t?.focus();
+      t?.injectBuildDomTree();
       const w = globalThis as unknown as { window: { buildDomTree?: (a: unknown) => unknown } };
       const build = w.window.buildDomTree;
       if (typeof build !== "function") return null;
@@ -202,8 +225,8 @@ export async function startHarness(opts: HarnessOptions): Promise<Harness> {
     async blockedOrigins() {
       return [bridgeUrl];
     },
-    async navigateTab(_tabId, url) {
-      tab.go(url);
+    async navigateTab(tabId, url) {
+      tabsById.get(tabId)?.go(url);
     },
   };
 
@@ -238,6 +261,11 @@ export async function startHarness(opts: HarnessOptions): Promise<Harness> {
     bridgeUrl,
     token,
     tab,
+    tabs: tabsById,
+    focusTab(id: number) {
+      if (!tabsById.has(id)) throw new Error(`focusTab: no tab ${id} in this harness`);
+      userFocusedId = id;
+    },
     cards,
     wireCards,
     get mode() {

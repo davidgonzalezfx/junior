@@ -104,6 +104,13 @@ export class FakeTab {
     this.show(page);
   }
 
+  /** Re-stamps this tab's window globals onto globalThis — the harness models
+   * executeScript's per-tab injection by focusing the target tab's realm before
+   * running the self-contained in-page functions (T1 multi-tab support). */
+  focus(): void {
+    stampGlobals(this.dom);
+  }
+
   /** Evaluates the REAL vendored buildDomTree into the active window, idempotent
    * per window — mirrors executeScript({files:["vendor/buildDomTree.js"]}). */
   injectBuildDomTree(): void {
