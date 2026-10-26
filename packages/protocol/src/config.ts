@@ -1,6 +1,7 @@
 // @junior/protocol/config.ts — ~/.junior/config.json schema (plan §4.1).
 // Parsed by the bridge on startup; written by `junior-bridge` CLI + Settings→Providers.
 import { z } from "zod";
+import { PERMISSION_MODES } from "./guard.js";
 
 export const OpenAICompatibleProviderConfigSchema = z.object({
   id: z.string(),
@@ -68,9 +69,12 @@ export const ProviderTestResultSchema = z.discriminatedUnion("ok", [
   z.object({ ok: z.literal(false), error: z.string().max(300) }),
 ]);
 
+// Single source: guard.ts PERMISSION_MODES (also behind PermissionMode + normalizePermissionMode).
+const PermissionModeSchema = z.enum(PERMISSION_MODES);
+
 export const JuniorConfigSchema = z.object({
   port: z.number().int().min(1).max(65535).default(8620),
-  permissionMode: z.enum(["ask", "auto", "none"]).default("ask"),
+  permissionMode: PermissionModeSchema.default("ask"),
   providers: ProvidersConfigSchema.default({ openaiCompatible: [], fallbackChain: [] }),
   codeExecution: z.literal("off").default("off"), // reserved; not implemented in v1 (plan §4.1)
   maxSteps: z.number().int().min(1).max(100).default(30), // schema enforces the 1–100 clamp
@@ -93,7 +97,7 @@ export const EXTENSION_ORIGIN = `chrome-extension://${EXTENSION_ID}` as const;
 // JuniorConfigSchema fields so the extension can display + pre-check them.
 export const ExtensionSettingsSchema = z.object({
   bridgeUrl: z.string().default("http://127.0.0.1:8620"),
-  permissionMode: z.enum(["ask", "auto", "none"]).default("ask"),
+  permissionMode: PermissionModeSchema.default("ask"),
   allowCliNativeTools: z.boolean().default(false),
 });
 
