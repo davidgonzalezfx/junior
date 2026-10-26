@@ -64,9 +64,13 @@ byte-identical replay `delivered:false` (tool call answered once); 9 MB POST →
       pass: agent asked to type into github.com/login's password field → typing
       refused in both modes, "that action is refused in every mode, and it's final,"
       field left untouched. Site grants did not override.
-- [ ] **Panel-closed default-deny within the 120 s window** — bridge tests green
-      (no-panel ⇒ immediate deny; unanswered card ⇒ 120 s default-deny). Remaining:
-      real-profile observation.
+- [x] **Panel-closed default-deny within the 120 s window** — 2026-10-26, real Chrome
+      pass: panel open + unanswered card → 120 s auto-deny ✅; panel closed mid-card →
+      immediate deny on port disconnect (M5-9 fix; the SW setTimeout died with the
+      suspended worker pre-fix) → reopen shows Idle + the tool part rendered
+      "navigate failed" (M5-10 fix), task unwound, no hang. A panel-close mid-turn
+      also exposed the dangling-tool-call history bug (M5-10: bridge sanitizes replayed
+      history; per-provider errors now surface in the panel).
 
 ## Crash / perf (§9) — ✅ green (M5-4, 2026-10-25)
 
