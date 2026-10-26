@@ -92,7 +92,3 @@ function randomHex(bytes: number): string {
 export function newNonce(): string {
   return randomHex(12);
 }
-
-export function wrapUntrusted(nonce: string, body: string): string {
-  return `<<<UNTRUSTED_WEB_DATA nonce=${nonce}>>>\n${body}\n<<<END nonce=${nonce}>>>`;
-}

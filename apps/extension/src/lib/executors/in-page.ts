@@ -469,13 +469,6 @@ export async function juniorActionInPage(args: InPageRequest): Promise<InPageRes
 
   el.scrollIntoView({ behavior: "auto", block: "center", inline: "center" });
   (el as HTMLElement).focus();
-  if (typeof (el as HTMLInputElement).select === "function") {
-    try {
-      (el as HTMLInputElement).select();
-    } catch {
-      /* select() is unavailable on some field types */
-    }
-  }
 
   const rawText = args.text || "";
   const hasEnter = rawText.includes("\n");

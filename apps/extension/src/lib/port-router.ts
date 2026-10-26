@@ -130,9 +130,7 @@ export interface PortRouterOptions {
   extensionOrigin: string;
   /** Called when a validated panel page answers a card. */
   onApprovalResponse: (msg: ApprovalResponseMessage, port: PortLike) => void;
-  /** Called when an allowed content-script message arrives (M3-4 wires handlers). */
-  onContentMessage?: (msgType: string, msg: unknown, port: PortLike) => void;
-  /** M5-9: the LAST panel port disconnected — nobody is left who could ever
+  /** The LAST panel port disconnected — nobody is left who could ever
    * answer a card. The background denies every pending approval here
    * (§4.3 no-panel ⇒ deny, the bridge-side mirror). Firing this immediately also
    * removes the card timer an idle-MV3 suspension would otherwise lose: a closed

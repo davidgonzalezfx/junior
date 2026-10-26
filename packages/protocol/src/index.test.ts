@@ -10,16 +10,9 @@ import {
   PairingRequestSchema,
   PairingResultSchema,
   PairingStatusSchema,
-  PROTOCOL_API_LEVEL,
   QueueItemSchema,
   ActionResultSchema,
 } from "./index.js";
-
-describe("@junior/protocol scaffold", () => {
-  it("exports the API level stub", () => {
-    expect(PROTOCOL_API_LEVEL).toBe(0);
-  });
-});
 
 describe("BrowserActionSchema (plan §3)", () => {
   it("parses every kind", () => {

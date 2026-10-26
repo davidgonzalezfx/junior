@@ -10,7 +10,6 @@ import {
   safeSlice,
   sanitizeDeep,
   stripDelimiters,
-  wrapUntrusted,
 } from "./untrusted.js";
 
 /** Deterministic LCG so fuzz failures are reproducible from the seed in the test name. */
@@ -183,21 +182,12 @@ describe("capFragment / capPlain / safeSlice", () => {
   });
 });
 
-describe("newNonce / wrapUntrusted", () => {
+describe("newNonce", () => {
   it("nonces are 24 hex chars and unique", () => {
     const a = newNonce();
     const b = newNonce();
     expect(a).toMatch(/^[0-9a-f]{24}$/);
     expect(b).toMatch(/^[0-9a-f]{24}$/);
     expect(a).not.toBe(b);
-  });
-
-  it("wrapUntrusted uses the marker format the strip removes", () => {
-    const nonce = newNonce();
-    const wrapped = wrapUntrusted(nonce, "body text");
-    expect(wrapped).toContain(`<<<UNTRUSTED_WEB_DATA nonce=${nonce}>>>`);
-    expect(wrapped).toContain(`<<<END nonce=${nonce}>>>`);
-    // The strip removes exactly the pieces the wrapper adds — closing the loop.
-    expect(stripDelimiters(wrapped, nonce)).not.toMatch(/UNTRUSTED|END nonce/i);
   });
 });
