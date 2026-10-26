@@ -66,7 +66,11 @@ export function anthropicToolUseTurn(
     messageStart(o),
     { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
     { type: "content_block_stop", index: 0 },
-    { type: "content_block_start", index: 1, content_block: { type: "tool_use", id, name, input: {} } },
+    {
+      type: "content_block_start",
+      index: 1,
+      content_block: { type: "tool_use", id, name, input: {} },
+    },
     {
       type: "content_block_delta",
       index: 1,

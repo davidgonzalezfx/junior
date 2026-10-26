@@ -6,6 +6,7 @@
 // (plan §8 M4 accept b) on fixture pages: navigate to results, read_page,
 // click the first result (side effect recorded in the page), navigate to open it.
 import { describe, expect, it } from "vitest";
+import { anthropicTextTurn, anthropicToolUseTurn } from "@junior/testkit/wire";
 import { startHarness, type FakePage, type Harness } from "./harness";
 
 const START_URL = "https://start.junior.test/index.html";
@@ -31,62 +32,24 @@ const searchPage: FakePage = {
   },
 };
 
-/** SSE bytes for one Anthropic Messages-API turn. */
-function anthropicSse(events: Array<Record<string, unknown>>): string {
-  return (
-    events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join("") +
-    "data: [DONE]\n\n"
-  );
-}
-
 function toolUseTurn(id: string, name: string, input: unknown): string {
-  return anthropicSse([
-    {
-      type: "message_start",
-      message: {
-        id: `msg_${id}`,
-        role: "assistant",
-        content: [],
-        model: "harness-mock",
-        usage: { input_tokens: 100, output_tokens: 1 },
-      },
-    },
-    { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
-    { type: "content_block_stop", index: 0 },
-    {
-      type: "content_block_start",
-      index: 1,
-      content_block: { type: "tool_use", id, name, input: {} },
-    },
-    {
-      type: "content_block_delta",
-      index: 1,
-      delta: { type: "input_json_delta", partial_json: JSON.stringify(input) },
-    },
-    { type: "content_block_stop", index: 1 },
-    { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 30 } },
-    { type: "message_stop" },
-  ]);
+  return anthropicToolUseTurn(id, name, input, {
+    messageId: `msg_${id}`,
+    model: "harness-mock",
+    inputTokens: 100,
+    startOutputTokens: 1,
+    outputTokens: 30,
+  });
 }
 
 function textTurn(text: string): string {
-  return anthropicSse([
-    {
-      type: "message_start",
-      message: {
-        id: "msg_final",
-        role: "assistant",
-        content: [],
-        model: "harness-mock",
-        usage: { input_tokens: 200, output_tokens: 1 },
-      },
-    },
-    { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
-    { type: "content_block_delta", index: 0, delta: { type: "text_delta", text } },
-    { type: "content_block_stop", index: 0 },
-    { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 10 } },
-    { type: "message_stop" },
-  ]);
+  return anthropicTextTurn(text, {
+    messageId: "msg_final",
+    model: "harness-mock",
+    inputTokens: 200,
+    startOutputTokens: 1,
+    outputTokens: 10,
+  });
 }
 
 /** Scripted model: navigate → read_page → click the first result (its page-visible

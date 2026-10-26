@@ -30,9 +30,7 @@ export function cliAssistantText(text: string): Record<string, unknown> {
 }
 
 /** The successful-turn result event; override any field for variants. */
-export function cliResult(
-  overrides: Record<string, unknown> = {},
-): Record<string, unknown> {
+export function cliResult(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     type: "result",
     subtype: "success",

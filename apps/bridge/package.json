@@ -19,6 +19,7 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
+    "@junior/testkit": "workspace:*",
     "tsx": "4.23.15"
   },
   "scripts": {
