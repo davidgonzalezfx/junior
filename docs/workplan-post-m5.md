@@ -13,9 +13,10 @@
 
 ## Process (applies to every story)
 
-- **Worker:** tmux `junior:0.0`. The director (`junior:0.1`) dispatches and verifies. One story
-  per worker turn: **send `/clear` first**, then the story brief (long briefs go via
-  `printf '%s' "$MSG" | tmux load-buffer -b N -` + `tmux paste-buffer -t junior:0.0 -b N -d`).
+- **Worker:** tmux `junior:0.0`. The director (pane `%1`, currently `junior:0.2`; `junior:0.1` is a plain shell) dispatches and verifies. One story
+  per worker turn: **send `/clear` first**, then ONE short line pointing at the brief file
+  (`Read and execute the brief at <abs path>`). Long briefs are never pasted: pasting truncated a
+  brief on 2026-10-26.
 - **Verify dispatch started:** capture the pane — expect a spinner line + context ~1% after /clear.
   If Enter won't submit (stale-input quirk), `/clear` wipes it and resend via paste-buffer.
 - **DoD per story** (from CLAUDE.md): `pnpm -r typecheck/test/build` + `pnpm lint` +
@@ -29,12 +30,12 @@
   (CLAUDE.md rule — never strip those).
 - **Don't touch:** `docs/qa.md` (frozen record), `plan.md` except where a story says to update it,
   `review.md` (evidence reference).
-- **Reply back to the director (worker → `junior:0.1`).** As the LAST action of a story, after
+- **Reply back to the director (worker → tmux pane `%1`, currently `junior:0.2`).** As the LAST action of a story, after
   the commits and the workplan tick, notify the director with exactly these two commands:
 
   ```bash
-  tmux send-keys -t junior:0.1 '[worker junior:0.0] T7 done: <outcome>; commits <hashes>; user verify: <yes/no>'
-  tmux send-keys -t junior:0.1 Enter
+  tmux send-keys -t %1 '[worker junior:0.0] T7 done: <outcome>; commits <hashes>; user verify: <yes/no>'
+  tmux send-keys -t %1 Enter
   ```
 
   Rules: one line, under ~300 characters, single-quoted, and no apostrophes or single quotes
