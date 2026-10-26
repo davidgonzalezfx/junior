@@ -21,7 +21,16 @@ describe("browserTools (M4-3)", () => {
   it("registers the seven §4.5 browser tools", () => {
     const tools = browserTools({ dispatcher: stubDispatcher(OK({})) });
     expect(Object.keys(tools).sort()).toEqual(
-      ["click", "get_active_tab", "navigate", "read_page", "screenshot", "type", "scroll"].sort(),
+      [
+        "click",
+        "get_active_tab",
+        "media",
+        "navigate",
+        "read_page",
+        "screenshot",
+        "type",
+        "scroll",
+      ].sort(),
     );
   });
 
@@ -47,6 +56,14 @@ describe("browserTools (M4-3)", () => {
       kind: "scroll",
       direction: "down",
       amount: undefined,
+    });
+
+    await tools.media!.execute!({ op: "pause", target: "f7:m0" }, {} as never);
+    expect(dispatch).toHaveBeenLastCalledWith({
+      kind: "media",
+      op: "pause",
+      target: "f7:m0",
+      time: undefined,
     });
 
     await tools.read_page!.execute!(

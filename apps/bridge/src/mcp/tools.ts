@@ -8,6 +8,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import {
   BridgeStatusSchema,
+  MediaOp,
   ReadMode,
   newNonce,
   safeSlice,
@@ -123,7 +124,7 @@ export function registerMcpTools(server: McpServer, deps: McpToolDeps): void {
     "read_page",
     {
       description:
-        'Read the active page token-efficiently: outline (interactive elements as [index] lines), interactive (with roles/values), text, or a section via CSS selector. Content inside cross-origin iframes (embedded video players, payment or sign-in widgets) follows a `--- iframe f7 <url> ---` header with frame-qualified indices like [f7:3]; a section selector can be scoped to a frame the same way ("f7:#player"). Prefer this over screenshots.',
+        'Read the active page token-efficiently: outline (interactive elements as [index] lines), interactive (with roles/values), text, or a section via CSS selector. Content inside cross-origin iframes (embedded video players, payment or sign-in widgets) follows a `--- iframe f7 <url> ---` header with frame-qualified indices like [f7:3]; a section selector can be scoped to a frame the same way ("f7:#player"). Prefer this over screenshots. Elements without visible text show fallback labels (aria-label=, title=, icon=, data-purpose=, pressed=).',
       inputSchema: z.object({
         mode: ReadMode.default("outline"),
         selector: z.string().max(512).optional(),
@@ -153,7 +154,7 @@ export function registerMcpTools(server: McpServer, deps: McpToolDeps): void {
     "click",
     {
       description:
-        'Click an element on the active page. Target is an index exactly as read_page printed it ("[12]" → "12"; inside an iframe "[f7:3]" → "f7:3"), visible text, a CSS selector, or an XPath. Prefix text/CSS/XPath with the frame ("f7:Play") to search inside that iframe; unprefixed targets search the top page.',
+        'Click an element on the active page. Target forms: an index exactly as read_page printed it ("[12]" → "12"; inside an iframe "[f7:3]" → "f7:3"); a CSS selector ("#play", "button[aria-label=Play]"; open shadow roots are searched); an XPath ("//button[2]"); or visible text / an accessible name ("Play"; force text matching with "text:video"). Indices, selectors and XPaths are strict: a stale index or a selector that matches nothing visible returns an error and clicks NOTHING — read_page again instead of guessing. Only text targets match fuzzily (exact before partial). Prefix any target with a frame ("f7:Play") to search inside that iframe; unprefixed targets search the top page. The result names what was hit (tag, text, link, how it matched, iframe) — check it. For video/audio use the media tool rather than player buttons.',
       inputSchema: z.object({ target: z.string().max(512) }),
     },
     async (args) => dispatchTool(deps.dispatcher, { kind: "click", target: args.target }),
@@ -163,7 +164,7 @@ export function registerMcpTools(server: McpServer, deps: McpToolDeps): void {
     "type",
     {
       description:
-        'Type text into a field on the active page (same target forms as click, including frame-qualified "f7:3" / "f7:Email"). Secret/password fields are refused in every mode — the agent is never given secret material.',
+        'Type text into a field on the active page. Same target forms and strictness as click (index, frame-qualified "f7:3" / "f7:Email", CSS, XPath, or label text); the result names the field it typed into. Secret/password fields are refused in every mode — the agent is never given secret material.',
       inputSchema: z.object({
         target: z.string().max(512),
         text: z.string().max(10000),
@@ -174,10 +175,30 @@ export function registerMcpTools(server: McpServer, deps: McpToolDeps): void {
   );
 
   server.registerTool(
+    "media",
+    {
+      description:
+        'Read or control <video>/<audio> in the active tab and its iframes through the media API. op "state" (default) lists every media element as [m0] / [f7:m0] lines: playing or paused, time/duration, readiness, muted, size, drm. play / pause / seek (time = seconds from the start) / mute / unmute act on target ("m0", "f7:m0", or a CSS selector, optionally "f7:"-scoped; omit for the main video) and return the state after. Controls need the same approval as a click. If play is blocked by Chrome\'s autoplay policy, mute then play, or click the player\'s own play button. DRM video renders black in screenshots — read media state instead.',
+      inputSchema: z.object({
+        op: MediaOp.default("state"),
+        target: z.string().max(512).optional(),
+        time: z.number().min(0).max(604800).optional(),
+      }),
+    },
+    async (args) =>
+      dispatchTool(deps.dispatcher, {
+        kind: "media",
+        op: args.op,
+        target: args.target,
+        time: args.time,
+      }),
+  );
+
+  server.registerTool(
     "screenshot",
     {
       description:
-        "Screenshot of the active tab as a downscaled JPEG data URL (base64 in the text payload). More expensive than read_page — prefer read_page for structure.",
+        "Screenshot of the active tab as a downscaled JPEG data URL (base64 in the text payload). More expensive than read_page — prefer read_page for structure. DRM-protected video (Udemy, Netflix, …) renders black — use the media tool for playback state.",
     },
     async () =>
       dispatchTool(

@@ -144,6 +144,7 @@ describe("POST /mcp — raw JSON-RPC wire", () => {
       "click",
       "get_active_tab",
       "junior_status",
+      "media",
       "navigate",
       "read_page",
       "screenshot",
@@ -202,6 +203,26 @@ describe("tools/call over the real dispatcher", () => {
     expect(wire.result.isError).toBeFalsy();
     expect(wire.result.content[0]!.type).toBe("text");
     expect(JSON.parse(wire.result.content[0]!.text)).toEqual({ navigated: true });
+  });
+
+  it("media: the tool call queues a media action with its op and target", async () => {
+    const { app } = newApp();
+    const call = app.request("/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 10,
+        method: "tools/call",
+        params: { name: "media", arguments: { op: "seek", target: "f7:m0", time: 90 } },
+      }),
+      headers: JSON_RPC_HEADERS,
+    });
+    const item = await pollOnce(app);
+    if (item.kind !== "action") throw new Error("expected an action item");
+    expect(item.action).toEqual({ kind: "media", op: "seek", target: "f7:m0", time: 90 });
+    await resolveAction(app, item.id, "Seeked to 90s");
+    const wire = (await (await call).json()) as { result: { isError?: boolean } };
+    expect(wire.result.isError).toBeFalsy();
   });
 
   it("a guard denial comes back as isError with the structured reason", async () => {

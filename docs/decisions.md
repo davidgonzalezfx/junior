@@ -527,3 +527,39 @@ is now inlined. `serialization.test.ts` rebuilds every in-page function from its
 catch this class of bug. `plan.md` is unchanged: the post-M5 workplan freezes it unless a story
 says to update it. Affects: `lib/executors/frames.ts` (new), `restricted.ts` (moved out of
 `index.ts`), `index.ts`, `read-page.ts`, `protocol/actions.ts`, both tool catalogs.
+
+## 2026-10-26 · Strict targets, outline fallback labels, and a separate `media` tool (T5b)
+
+**Context:** on a real Udemy lecture the agent clicked "Home" for `[0]` and a "Photo & Video
+Editing Tools" banner for the selector `video`, and had no way to read or reliably toggle
+playback. **Root cause of the misclicks:** the vendored buildDomTree sets
+`data-highlight-index` on every indexed element and never removes it, while the map is rebuilt
+per read. The resolver queried the attribute first (`querySelector`, document order), so after a
+re-read (the outline is viewport-scoped, so a scroll renumbers) a stale `0` on the header link
+won over the current `0`. Any miss then fell through to fuzzy attribute/text passes, which is how
+`video` (the player was zero-size before load, so "not visible") reached a banner containing
+"Video". **Choice — strict targets:** an index resolves through the URL-stamped
+`__junior_dom_map` only; a syntactically valid CSS selector or XPath must match something visible
+or the action fails with "matched nothing visible — no fallback"; only free text runs the fuzzy
+passes, exact (attribute, then text) before partial, and reverse containment needs ≥ 3 characters.
+Whether a bare word is CSS or text: it is a selector when it contains selector syntax
+(`# [ ] > ~ + * = ( ) :`) or every compound starts with a class or a lowercase known tag
+(`video`, `button.primary`); `Play`, `Sign in`, `example.com` stay text, and `text:` forces text
+(for the rare lowercase tag-like label). Results name the hit (tag, text, href, strategy,
+iframe). **Labels:** the labeling is Junior code (`outline.ts`, installed as
+`window.__junior_label_of` right before the build); the vendored serializer gains one call site
+(patch 4 in `scripts/patch-buildDomTree.mjs`). **Media — new tool vs a `read_page` mode:** a
+separate `media` action (`op` state | play | pause | seek | mute | unmute) was chosen. `read_page`
+modes are text views of the DOM with no side effects and no per-element targets; media state is
+structured, and is useful exactly because it pairs with control on the same `m<N>` / `f7:m<N>`
+targets (T5a's stateless scheme — the index is the element's position among the frame's media,
+recomputed per call). One tool keeps read and control together, gives one description to teach,
+and makes the state read cheap enough to poll after every control. `op: "state"` is a read (no
+card, like read_page); every other op takes the click guard + approval path on the media
+element's facts. **No `chrome.debugger`** (user decision): autoplay-policy rejections
+(`NotAllowedError`) are reported with the muted-play workaround instead of trusted input; when a
+frame has no media element at all, play/pause fall back to focusing the player and sending its
+key (`k` on YouTube, space elsewhere), reported as best-effort. `plan.md` unchanged (workplan
+freeze); the protocol gains the additive `media` action. Affects: `in-page.ts`, `outline.ts`,
+`media.ts`, `media-in-page.ts`, `index.ts`, vendored `buildDomTree.js` + patcher,
+`protocol/actions.ts`, both tool catalogs (kept in sync by hand until F3 unifies them).
