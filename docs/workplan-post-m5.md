@@ -176,7 +176,12 @@
     space/k on the focused player — plus shadow-DOM piercing in the resolver); (c) tool-description
     guidance so models target `<video>`/frame-qualified elements instead of giving up.
   - Verify against YouTube (iframe player) AND a same-origin `<video>` page.
-- [ ] **T7 — Screenshot tool consistently fails: "Screenshot failed: Failed to fetch"** *(user-reported 2026-10-26)*
+- [x] **T7 — Screenshot tool consistently fails: "Screenshot failed: Failed to fetch"** *(user-reported 2026-10-26)*
+  **DONE 2026-10-26 (commit 8b83380):** root cause was `screenshot.ts` `fetch(dataUrl)` in the SW —
+  the extension_pages CSP (covers the background worker) has `connect-src 'self' http://127.0.0.1:8620`,
+  which does not match `data:`, so Chrome blocks it as "Failed to fetch". Fixed by decoding the base64
+  payload directly (`dataUrlToBlob`); CSP unchanged. No other `data:`/`blob:` fetches in the extension
+  (the only other `fetch` is `bridge-client.ts` → the bridge, which is allowed).
   - Screenshot fails every time with a fetch error — "Failed to fetch" implies a `fetch()` call
     inside the chain is dying (in-page executor ↔ SW message path, or SW ↔ bridge). Trace the
     screenshot path end-to-end (`executors/` → `captureVisibleTab` → dataURL transport), write a
@@ -316,3 +321,7 @@ U…                       (optional)
   incl. 2 gated skip + 5 spikes + 6 testkit) · e7301f6
 - 2026-10-26 — T6 real-Chrome verify by the user: 5/5 green (rename survives, delete sticks, cut-off long
   reply kept as partial, viewing doesn't reorder, History → Back keeps the full transcript).
+- 2026-10-26 — T7 done · screenshot "Failed to fetch" = CSP connect-src blocking `fetch(data:)` in the
+  SW; replaced with an atob → Blob decode, CSP untouched · fail-first red 3/3 (fetch stubbed to reject
+  like CSP) → green 3/3; gates green (167 protocol + 247 bridge + 329 ext + 17 tests incl. 2 gated
+  skip + 5 spikes + 6 testkit) · 8b83380
