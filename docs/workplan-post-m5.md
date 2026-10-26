@@ -191,6 +191,30 @@
     space/k on the focused player — plus shadow-DOM piercing in the resolver); (c) tool-description
     guidance so models target `<video>`/frame-qualified elements instead of giving up.
   - Verify against YouTube (iframe player) AND a same-origin `<video>` page.
+  - **Split 2026-10-26 into two stories** (one worker turn each):
+- [ ] **T5a — Frame-aware page actions (iframes)**
+  - `read_page` (all 4 modes), `click`, `type` and `scroll` must reach content inside iframes,
+    including **cross-origin** ones (embedded players, payment widgets). Today executors inject into
+    the main frame only; the vendored `buildDomTree.js` computes iframe offsets but cannot read a
+    cross-origin `contentDocument`.
+  - Approach: enumerate frames (`chrome.webNavigation.getAllFrames` — check permission cost — or
+    `scripting.executeScript({target:{tabId, allFrames:true}})` results, which carry `frameId`),
+    build a frame-qualified outline (frame header lines + indices that encode the frame, e.g.
+    `f3:12`, or a global index map SW-side that remembers `{frameId, localIndex}`), and route
+    actions with `target:{tabId, frameIds:[id]}`. Plain numeric indices from the top frame must keep
+    working unchanged (backwards compatible for existing prompts and MCP users).
+  - Also check T1's note: text/section modes returned "Injection returned no result" on a real
+    page — fix it here if it is frame-related, otherwise record what it is.
+  - Privacy: frames belong to the agent tab only (T1 invariant); the sensitive-field refusal and
+    the guard must apply inside frames exactly as in the top frame — add tests for both.
+  - Verify: a page with a same-origin and a cross-origin iframe (fixture), then YouTube embed.
+- [ ] **T5b — Media player controls (play/pause)**
+  - YouTube: play worked, pause did not. `<video>`/`<audio>` and player chrome are not in the
+    resolver's CLICK_POOL and often live in shadow DOM. Fix: add media elements and common player
+    control roles to the pool, pierce open shadow roots in the resolver (and the outline), and add
+    a keyboard fallback (focus the player, send `k`/space) when a click on a media target changes
+    nothing. Update tool descriptions in BOTH catalogs (chat + MCP) so models target the
+    `<video>` element or the control's index instead of giving up. Depends on T5a for iframe players.
 - [x] **T7 — Screenshot tool consistently fails: "Screenshot failed: Failed to fetch"** *(user-reported 2026-10-26)*
   **DONE 2026-10-26 (commit 8b83380):** root cause was `screenshot.ts` `fetch(dataUrl)` in the SW —
   the extension_pages CSP (covers the background worker) has `connect-src 'self' http://127.0.0.1:8620`,
@@ -277,7 +301,7 @@
 T1                       (privacy leak — approved to jump the queue)
 C1 → C2 → C3             (cleanup)
 T2 → T3 → T4 → T6        (correctness)
-T7 → T5                  (screenshot first — it's T5's debugging tool)
+T7 → T5a → T5b           (screenshot first — it is the debugging tool for T5)
 F1 → F2 → F3             (user features)
 H1 → H2 → H3             (hardening)
 U…                       (optional)
@@ -340,3 +364,5 @@ U…                       (optional)
   SW; replaced with an atob → Blob decode, CSP untouched · fail-first red 3/3 (fetch stubbed to reject
   like CSP) → green 3/3; gates green (167 protocol + 247 bridge + 329 ext + 17 tests incl. 2 gated
   skip + 5 spikes + 6 testkit) · 8b83380
+- 2026-10-26 — T7 real-Chrome verify by the user: screenshot returns a JPEG on a real page (step 1).
+- 2026-10-26 — T5 split into T5a (frame-aware actions) and T5b (media controls).
