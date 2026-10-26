@@ -21,7 +21,7 @@
 - **DoD per story** (from CLAUDE.md): `pnpm -r typecheck/test/build` + `pnpm lint` +
   `format:check` green; tests for every behavior change; **fail-first regression test for every
   bug fix**; no file over ~400 lines without a stated reason; commits reference the story ID
-  (`Wn-n:`) with `Co-Authored-By: Claude Code <noreply@anthropic.com>`; progress notes go in
+  (`Wn-n:`) with the session's own attribution trailer; progress notes go in
   THIS file (tick the box + commit hash), not in code comments.
 - **Comment policy (whole effort):** remove process-narrative comments (session IDs, "M5-9
   flake" stories, "director's constraints", "Junior delta vs Autono" bookkeeping). Keep
