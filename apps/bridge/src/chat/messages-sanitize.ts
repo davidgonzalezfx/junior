@@ -7,8 +7,7 @@
 // finalize-on-death (history.ts) keeps NEW sessions from being written broken.
 import type { UIMessage } from "ai";
 
-const isToolType = (type: string): boolean =>
-  type === "dynamic-tool" || type.startsWith("tool-");
+const isToolType = (type: string): boolean => type === "dynamic-tool" || type.startsWith("tool-");
 
 /** A tool part is resolved when it reached a terminal state (v7 ToolUIPart:
  * output-available carries `output`, output-error carries `errorText`). The loose

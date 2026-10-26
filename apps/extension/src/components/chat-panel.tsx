@@ -134,13 +134,14 @@ function Chat({
     () => createChatTransport(setup.bridgeUrl, setup.token, target, agentMode),
     [setup, target, agentMode],
   );
-  const { messages, sendMessage, regenerate, setMessages, status, error, stop } = useChat<JuniorUIMessage>({
-    id: session.id,
-    // Storage is typed loose (UIMessage, metadata unknown) — the one honest narrowing;
-    // the wire round-trip is validated by the tests that stream message-metadata.
-    messages: session.messages as JuniorUIMessage[],
-    transport,
-  });
+  const { messages, sendMessage, regenerate, setMessages, status, error, stop } =
+    useChat<JuniorUIMessage>({
+      id: session.id,
+      // Storage is typed loose (UIMessage, metadata unknown) — the one honest narrowing;
+      // the wire round-trip is validated by the tests that stream message-metadata.
+      messages: session.messages as JuniorUIMessage[],
+      transport,
+    });
 
   const busy = status === "submitted" || status === "streaming";
   // Tool-call card durations (plan §5.3): client-measured input→output gap, keyed by

@@ -252,9 +252,9 @@ function toolPartResolved(part: unknown): boolean {
  * keep object identity, and a no-op run returns the ORIGINAL array (callers use
  * reference equality to detect "something changed"; a fresh array every call would
  * loop the chat-panel finalize effect forever). */
-export function finalizeInterruptedToolParts(messages: UIMessage[]): UIMessage[] {
+export function finalizeInterruptedToolParts<M extends UIMessage>(messages: M[]): M[] {
   let anyChanged = false;
-  const next = messages.map((message) => {
+  const next = messages.map((message): M => {
     let changed = false;
     const parts = message.parts.map((part) => {
       if (!isToolPartName(part.type) || toolPartResolved(part)) return part;
@@ -262,7 +262,7 @@ export function finalizeInterruptedToolParts(messages: UIMessage[]): UIMessage[]
       anyChanged = true;
       return { ...part, state: "output-error", errorText: INTERRUPTED_TOOL_ERROR } as typeof part;
     });
-    return changed ? { ...message, parts } : message;
+    return changed ? ({ ...message, parts } as M) : message;
   });
   return anyChanged ? next : messages;
 }

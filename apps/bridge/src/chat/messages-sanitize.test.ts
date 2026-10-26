@@ -29,7 +29,10 @@ function assistant(...parts: unknown[]): UIMessage {
 describe("dropDanglingToolCalls (M5-10)", () => {
   it("drops an unresolved tool-call part (the panel-closed-mid-tool shape)", () => {
     const dangling = toolPart({});
-    const out = dropDanglingToolCalls([userMsg("open example.com"), assistant({ type: "step-start" }, dangling)]);
+    const out = dropDanglingToolCalls([
+      userMsg("open example.com"),
+      assistant({ type: "step-start" }, dangling),
+    ]);
     // The dangling part is gone; the assistant turn survives with its other parts.
     expect(out).toHaveLength(2);
     expect(out[1]!.parts).toEqual([{ type: "step-start" }]);
@@ -46,9 +49,7 @@ describe("dropDanglingToolCalls (M5-10)", () => {
   });
 
   it("keeps an output-error part (an error result still pairs the call)", () => {
-    const failed = assistant(
-      toolPart({ state: "output-error", errorText: "USER_DENIED: nope" }),
-    );
+    const failed = assistant(toolPart({ state: "output-error", errorText: "USER_DENIED: nope" }));
     const out = dropDanglingToolCalls([failed]);
     expect(out).toHaveLength(1);
     expect(out[0]!.parts).toHaveLength(1);
