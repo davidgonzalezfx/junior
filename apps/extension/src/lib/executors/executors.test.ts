@@ -211,6 +211,40 @@ describe("screenshot + get_active_tab + read_page", () => {
     expect(res.error).toContain("too large");
   });
 
+  it("T1: reveals the resolved tab and captures its window", async () => {
+    const seen: number[] = [];
+    const captured: Array<number | undefined> = [];
+    const env = makeEnv({
+      overrides: {
+        getActiveTab: vi.fn(async () => ({
+          id: 9,
+          url: "https://fixture.junior.test/",
+          title: "t",
+          status: "complete",
+          windowId: 4,
+        })),
+        revealTab: vi.fn(async (tabId: number) => {
+          seen.push(tabId);
+        }),
+        captureVisibleTab: vi.fn(async (windowId?: number) => {
+          captured.push(windowId);
+          return "data:image/jpeg;base64,AAAA";
+        }),
+      },
+    });
+    const res = await executeAction({ kind: "screenshot" }, env);
+    expect(res.status).toBe("ok");
+    expect(seen).toEqual([9]);
+    expect(captured).toEqual([4]);
+  });
+
+  it("T1: errors when there is no tab to screenshot", async () => {
+    const env = makeEnv({ overrides: { getActiveTab: vi.fn(async () => null) } });
+    const res = await executeAction({ kind: "screenshot" }, env);
+    expect(res.status).toBe("error");
+    expect(res.error).toContain("No browser tab to screenshot");
+  });
+
   it("get_active_tab returns capped page facts", async () => {
     const env = makeEnv();
     const res = await executeAction({ kind: "get_active_tab" } as BrowserAction, env);

@@ -2,6 +2,7 @@
 // approval cards. The SW is the composition root — every capability lives in a
 // tested lib module; this file only wires chrome events to them.
 import { executeAction, defaultEnv } from "@/lib/executors";
+import { AgentTabManager, defaultAgentTabHost, withAgentTab } from "@/lib/agent-tab";
 import { AgentLoop, mirrorAsk } from "@/lib/agent-loop";
 import { PortRouter } from "@/lib/port-router";
 import { PanelApprovalBroker } from "@/lib/panel-approvals";
@@ -91,6 +92,12 @@ export default defineBackground(() => {
     return fn(bridgeUrl, token);
   };
 
+  // T1: the agent gets its own tab (pinned, "Junior" group — lib/agent-tab.ts).
+  // Every action resolves to that tab id for the whole task regardless of the
+  // user's focus; get_active_tab within agent context reports it, and the
+  // overlay only ever lands on it.
+  const agentEnv = withAgentTab(defaultEnv, new AgentTabManager(defaultAgentTabHost));
+
   // §5.2 item 6: on agent activity the working tab gets the overlay; idle hides
   // it. The overlay's Pause button comes back through onOverlayAction → the
   // loop's local pause; the loop's onPausedChange re-syncs the overlay + panel.
@@ -99,7 +106,7 @@ export default defineBackground(() => {
       await overlay.hide();
       return;
     }
-    const tab = await defaultEnv.getActiveTab();
+    const tab = await agentEnv.getActiveTab();
     if (tab?.id !== undefined) await overlay.show(tab.id);
   };
 
@@ -117,7 +124,7 @@ export default defineBackground(() => {
       await bridgeCall((url, token) => postApprovalDecision(url, token, decision));
     },
     execute: (action) =>
-      executeAction(action, defaultEnv, {
+      executeAction(action, agentEnv, {
         ask: mirrorAsk(broker, async (domain) => {
           await addSiteGrant(domain);
         }),

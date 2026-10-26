@@ -30,6 +30,7 @@ import {
   postApprovalDecision,
 } from "@/lib/bridge-client";
 import { AgentLoop, mirrorAsk } from "@/lib/agent-loop";
+import { AgentTabManager, withAgentTab, type AgentTabHost } from "@/lib/agent-tab";
 import { executeAction, type ExecutorEnv } from "@/lib/executors";
 import { juniorActionInPage } from "@/lib/executors/in-page";
 import { juniorReadTextInPage } from "@/lib/executors/read-page";
@@ -230,6 +231,26 @@ export async function startHarness(opts: HarnessOptions): Promise<Harness> {
     },
   };
 
+  // T1: the same composition as the background — the loop's actions resolve
+  // through the agent tab manager, so the user's focus cannot retarget them.
+  // Tab 1 plays the "Junior" group tab (created once by the harness itself).
+  const agentTabHost: AgentTabHost = {
+    recall: async () => null,
+    remember: async () => {},
+    getTab: async (id) => {
+      const t = tabsById.get(id);
+      return t ? { id, url: t.url, title: t.document.title, status: "complete" } : null;
+    },
+    findExisting: async () => {
+      const t = tabsById.get(1)!;
+      return { id: 1, url: t.url, title: t.document.title, status: "complete" };
+    },
+    create: async () => {
+      throw new Error("harness: the agent tab (1) always exists — create() is unreachable");
+    },
+  };
+  const agentEnv = withAgentTab(env, new AgentTabManager(agentTabHost));
+
   const loop = new AgentLoop({
     poll: (timeoutMs) => fetchNextAction(bridgeUrl, token, timeoutMs),
     postResult: async ({ id, ...outcome }) => {
@@ -239,7 +260,7 @@ export async function startHarness(opts: HarnessOptions): Promise<Harness> {
       await postApprovalDecision(bridgeUrl, token, decision);
     },
     execute: (action) =>
-      executeAction(action, env, {
+      executeAction(action, agentEnv, {
         ask: mirrorAsk(sink, async (domain) => {
           await addSiteGrant(domain);
         }),

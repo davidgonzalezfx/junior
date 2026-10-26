@@ -44,6 +44,7 @@ export interface ActiveTab {
   url?: string;
   title?: string;
   status?: string;
+  windowId?: number;
 }
 
 /** The user's answer to an "ask" verdict; once/site proceed (grant persistence is M3-3). */
@@ -51,13 +52,18 @@ export type AskFn = (approval: ApprovalRequest) => Promise<"once" | "site" | "de
 
 export interface ExecutorEnv {
   getActiveTab(): Promise<ActiveTab | null>;
+  /** T1: bring a tab to the front of its window (no window focus change).
+   * captureVisibleTab only sees the ACTIVE tab of a window, so the screenshot
+   * op reveals the target tab before capturing — optional; without it the
+   * capture sees whatever the user has on screen. */
+  revealTab?(tabId: number): Promise<void>;
   runInPage(tabId: number, args: InPageRequest): Promise<InPageResponse>;
   /** text/section read_page — self-contained fn via executeScript({func}). */
   runReadInPage(tabId: number, args: ReadTextRequest): Promise<ReadTextResponse>;
   /** outline/interactive read_page — injects public/vendor/buildDomTree.js and
    *  calls window.buildDomTree(args); null when injection/invocation failed. */
   runBuildDomTree(tabId: number, args: BuildDomTreeArgs): Promise<BuildDomTreeResult | null>;
-  captureVisibleTab(): Promise<string>;
+  captureVisibleTab(windowId?: number): Promise<string>;
   permissionMode(): Promise<PermissionMode>;
   blockedOrigins(): Promise<readonly string[]>;
   navigateTab(tabId: number, url: string): Promise<void>;
@@ -68,7 +74,16 @@ export const defaultEnv: ExecutorEnv = {
     const [tab] = await browser.tabs.query({ active: true, lastFocusedWindow: true });
     const first = tab ?? (await browser.tabs.query({ active: true }))[0];
     if (!first) return null;
-    return { id: first.id, url: first.url, title: first.title, status: first.status };
+    return {
+      id: first.id,
+      url: first.url,
+      title: first.title,
+      status: first.status,
+      windowId: first.windowId,
+    };
+  },
+  async revealTab(tabId) {
+    await browser.tabs.update(tabId, { active: true });
   },
   async runInPage(tabId, args) {
     const results = await browser.scripting.executeScript({
@@ -117,10 +132,10 @@ export const defaultEnv: ExecutorEnv = {
     const text = (res as { text: unknown }).text;
     return typeof text === "string" ? { text } : null;
   },
-  async captureVisibleTab() {
+  async captureVisibleTab(windowId?: number) {
     // wxt types demand a number windowId, but Chrome's current-window form takes
     // null — same call Autono makes (background.js:2368).
-    const dataUrl = await browser.tabs.captureVisibleTab(null as unknown as number, {
+    const dataUrl = await browser.tabs.captureVisibleTab((windowId ?? null) as unknown as number, {
       format: "jpeg",
       quality: 100,
     });
@@ -203,8 +218,13 @@ export async function executeAction(
   }
 
   if (action.kind === "screenshot") {
+    const tab = await env.getActiveTab();
+    if (tab?.id === undefined) return errorOutcome("No browser tab to screenshot");
     try {
-      const dataUrl = await env.captureVisibleTab();
+      // T1: capture the AGENT tab, never whatever the user is looking at —
+      // reveal it in its window and capture that window's visible tab.
+      await env.revealTab?.(tab.id);
+      const dataUrl = await env.captureVisibleTab(tab.windowId);
       if (dataUrl.length > MAX_SCREENSHOT_CHARS) {
         return errorOutcome("Screenshot too large even after downscaling");
       }

@@ -25,7 +25,9 @@ export default defineConfig({
     minimum_chrome_version: "120",
     // §5.1: programmatic injection only — no static content_scripts (code does not run on
     // every page all the time). `sidePanel` is also auto-added by the sidepanel entrypoint.
-    permissions: ["storage", "scripting", "activeTab", "sidePanel", "tabs", "alarms"],
+    // `tabGroups` (T1): the agent's dedicated tab is pinned and labeled in a
+    // "Junior" tab group so it is visible, reusable, and never the user's tab.
+    permissions: ["storage", "scripting", "activeTab", "sidePanel", "tabs", "alarms", "tabGroups"],
     // §5.1: the bridge is the ONLY host at install time. v1 routes all inference through
     // the bridge. (M5-7 — decisions.md 2026-10-25: agent page actions — read_page/click/
     // type + overlay injection — need origin access to the TAB's site, which this grant
