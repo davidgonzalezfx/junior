@@ -15,32 +15,13 @@ import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { UIMessageChunk } from "ai";
-import type { ChatMessageMetadata, ChatRequestBody, JuniorConfig } from "@junior/protocol";
+import type { ChatRequestBody, JuniorConfig } from "@junior/protocol";
 import { readToken } from "../config.js";
 import { resolveClaudePath, sanitizeEnv } from "../cli-detect.js";
 import type { Logger } from "../auth.js";
 import { CliStreamMapper, type CliResult } from "./cli-mapper.js";
 
 export { CliStreamMapper, type CliResult, type CliResultUsage } from "./cli-mapper.js";
-
-/** The result event → ChatMessageMetadata (usage chips, plan §5.3). Only a successful
- * result reaches the caller (errors surface as error chunks), so this maps unconditionally. */
-export function cliResultToMetadata(result: CliResult, model: string): ChatMessageMetadata {
-  const usage: NonNullable<ChatMessageMetadata["usage"]> = {};
-  if (typeof result.usage?.input_tokens === "number") usage.inputTokens = result.usage.input_tokens;
-  if (typeof result.usage?.output_tokens === "number")
-    usage.outputTokens = result.usage.output_tokens;
-  if (usage.inputTokens !== undefined && usage.outputTokens !== undefined)
-    usage.totalTokens = usage.inputTokens + usage.outputTokens;
-  const metadata: ChatMessageMetadata = {
-    ...(Object.keys(usage).length > 0 ? { usage } : {}),
-    provider: "claude-cli",
-    model,
-  };
-  if (result.durationMs !== null) metadata.durationMs = result.durationMs;
-  if (result.totalCostUsd !== null) metadata.costUsd = result.totalCostUsd;
-  return metadata;
-}
 
 export const MCP_SERVER_NAME = "junior_browser"; // CLAUDE.md naming convention
 

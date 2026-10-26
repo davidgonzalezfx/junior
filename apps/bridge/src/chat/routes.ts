@@ -1,7 +1,7 @@
 // @junior/bridge/chat/routes — POST /api/chat (plan §4.5, §3 HTTP table).
 // Two engines: "api" runs streamText — plain chat, or agentMode with the §4.5
 // browser tool set (chat/tools.ts) looping through the dispatcher (guard +
-// approval cards); "cli" spawns the claude CLI (chat/engine-cli.ts) with
+// approval cards); "cli" (chat/cli-route.ts) spawns the claude CLI (chat/engine-cli.ts) with
 // --mcp-config looping back at this bridge's /mcp — the CLI's tool calls
 // traverse the same dispatcher + guard + cards. The response is an AI SDK v7
 // UI message stream (SSE) either way — the extension's useChat consumes it
@@ -12,7 +12,6 @@
 import { Hono } from "hono";
 import {
   convertToModelMessages,
-  createUIMessageStream,
   createUIMessageStreamResponse,
   isStepCount,
   streamText,
@@ -20,7 +19,7 @@ import {
   type LanguageModel,
   type UIMessage,
 } from "ai";
-import { ChatRequestBodySchema, type ChatMessageMetadata } from "@junior/protocol";
+import { ChatRequestBodySchema } from "@junior/protocol";
 import type { Logger } from "../auth.js";
 import { loadConfig } from "../config.js";
 import type { Dispatcher } from "../dispatcher/queue.js";
@@ -28,13 +27,9 @@ import { UnknownProviderError, resolveModel } from "./registry.js";
 import { AllProvidersFailedError, buildCandidateChain, firstSuccessfulStream } from "./fallback.js";
 import { dropDanglingToolCalls } from "./messages-sanitize.js";
 import { browserTools } from "./tools.js";
-import {
-  CliSessionMap,
-  cliResultToMetadata,
-  prepareCliTurn,
-  runCliTurn,
-  type SpawnFn,
-} from "./engine-cli.js";
+import { CliSessionMap, type SpawnFn } from "./engine-cli.js";
+import { cliChatResponse } from "./cli-route.js";
+import { metadataFrom } from "./metadata.js";
 
 /** v7: `system` was renamed `instructions` (old name is a deprecated fallback). */
 const JUNIOR_SYSTEM =
@@ -80,49 +75,7 @@ export function chatRoutes(deps: ChatDeps) {
     }
 
     if (body.data.engine === "cli") {
-      const wireId = (raw as { id?: unknown } | null)?.id;
-      const convId = typeof wireId === "string" && wireId ? wireId.slice(0, 200) : null;
-      const config = loadConfig(deps.dir);
-      const plan = prepareCliTurn(
-        {
-          dir: deps.dir,
-          config,
-          log,
-          loopbackUrl: deps.cli?.loopbackUrl,
-          spawnImpl: deps.cli?.spawnImpl,
-          sessions: cliSessions,
-        },
-        body.data,
-        convId,
-      );
-      if (!plan.ok) return c.json({ error: plan.error }, plan.status);
-      const stream = createUIMessageStream({
-        execute: async ({ writer }) => {
-          writer.write({ type: "start" });
-          writer.write({ type: "start-step" });
-          const outcome = await runCliTurn(
-            {
-              ...plan.options,
-              // Panel Stop / client disconnect kills the spawned CLI —
-              // otherwise the turn keeps running tools headless.
-              signal: c.req.raw.signal,
-            },
-            (chunk) => writer.write(chunk),
-          );
-          // The result event's usage rides as message metadata
-          // (the manual-write equivalent of toUIMessageStream's messageMetadata).
-          if (outcome.result !== null && !outcome.result.isError) {
-            writer.write({
-              type: "message-metadata",
-              messageMetadata: cliResultToMetadata(outcome.result, body.data.model),
-            });
-          }
-          writer.write({ type: "finish-step" });
-          writer.write({ type: "finish" });
-        },
-        onError: toErrorText,
-      });
-      return createUIMessageStreamResponse({ stream });
+      return cliChatResponse(c, deps, { log, sessions: cliSessions, toErrorText }, raw, body.data);
     }
 
     const config = loadConfig(deps.dir); // per request: Settings edits land without a restart
@@ -161,42 +114,6 @@ export function chatRoutes(deps: ChatDeps) {
       : agentMode
         ? JUNIOR_AGENT_SYSTEM
         : JUNIOR_SYSTEM;
-
-    // Usage chips: `finish` carries totalUsage + response.modelId — attach them as
-    // message metadata (v7 docs: the messageMetadata callback on toUIMessageStream).
-    // The metadata lands ON the finish chunk itself, not as a separate chunk (observed
-    // on the wire). response.modelId is provider-dependent — fall back to the requested
-    // model id (the CLI engine does the same).
-    const metadataFrom =
-      (providerId: string, requestedModel: string) =>
-      ({
-        part,
-      }: {
-        part: { type: string; totalUsage?: unknown; response?: { modelId?: unknown } };
-      }) => {
-        if (part.type !== "finish") return undefined;
-        const usage = (part.totalUsage ?? {}) as Record<string, unknown>;
-        const num = (v: unknown) => (typeof v === "number" ? v : undefined);
-        const model =
-          typeof part.response?.modelId === "string" && part.response.modelId
-            ? part.response.modelId
-            : requestedModel;
-        return {
-          usage: {
-            ...(num(usage.inputTokens) !== undefined
-              ? { inputTokens: num(usage.inputTokens) }
-              : {}),
-            ...(num(usage.outputTokens) !== undefined
-              ? { outputTokens: num(usage.outputTokens) }
-              : {}),
-            ...(num(usage.totalTokens) !== undefined
-              ? { totalTokens: num(usage.totalTokens) }
-              : {}),
-          },
-          model,
-          provider: providerId,
-        } satisfies ChatMessageMetadata;
-      };
 
     // The requested provider first, then configured chain entries (§4.5). A thunk that
     // throws (stale chain entry → UnknownProviderError) counts as a failed attempt.
