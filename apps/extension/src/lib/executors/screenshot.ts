@@ -19,6 +19,17 @@ export function scaledDims(
   };
 }
 
+/** Decode a base64 data URL in place. fetch(dataUrl) is blocked by the extension CSP
+ *  (connect-src has no data:) and fails as "Failed to fetch" in the real SW. */
+export function dataUrlToBlob(dataUrl: string): Blob {
+  const m = /^data:([^;,]*)(?:;[^,]*)?;base64,(.*)$/s.exec(dataUrl);
+  if (!m) throw new Error("Capture is not a base64 data URL");
+  const bin = atob(m[2]!);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: m[1] || "application/octet-stream" });
+}
+
 /** Re-encode a capture data URL as a JPEG data URL whose longest edge ≤ maxEdge. */
 export async function downscaleDataUrl(
   dataUrl: string,
@@ -27,7 +38,7 @@ export async function downscaleDataUrl(
   if (typeof createImageBitmap !== "function") {
     throw new Error("createImageBitmap is unavailable in this context");
   }
-  const blob = await (await fetch(dataUrl)).blob();
+  const blob = dataUrlToBlob(dataUrl);
   const bmp = await createImageBitmap(blob);
   try {
     const { width, height } = scaledDims(bmp.width, bmp.height, maxEdge);
