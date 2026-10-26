@@ -219,7 +219,7 @@ export class Dispatcher {
     return { actions, approvals };
   }
 
-  private requestApprovalItem(
+  private async requestApprovalItem(
     id: string,
     approval: ApprovalRequest,
     timeoutMs: number,
@@ -234,7 +234,14 @@ export class Dispatcher {
       timeoutMs,
     };
     this.queue.push(item);
-    return withTimeout(fut.promise, timeoutMs);
+    const decision = await withTimeout(fut.promise, timeoutMs);
+    if (decision !== null) return decision;
+    // Lapsed (default deny): drop the future and the card if still buffered, as the
+    // action path does — otherwise a reconnecting panel gets the stale card and a
+    // late approve reports delivered:true for a permission already denied.
+    this.approvals.delete(id);
+    this.queue.remove((it) => it.kind === "approval" && it.id === id);
+    return null;
   }
 
   private touch(): void {

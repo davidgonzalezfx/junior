@@ -2,9 +2,9 @@
 // path (§4.3): dispatch/resolve, guard deny, approvals-on-queue (once/deny/timeout/
 // no-panel), action timeout, dispose. Wire-level round-trips with a fake executor
 // client live in routes.test.ts.
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApprovalRequestSchema, type ApprovalDecision, type BrowserAction } from "@junior/protocol";
-import { approvalDenial } from "./approvals.js";
+import { APPROVAL_TIMEOUT_MS, approvalDenial } from "./approvals.js";
 import { AsyncQueue, Dispatcher, type ActionGuard, type GuardVerdict } from "./queue.js";
 
 const nav: BrowserAction = { kind: "navigate", url: "https://example.com" };
@@ -198,6 +198,85 @@ describe("Dispatcher — approvals on the queue (§4.3)", () => {
   it("unknown approval ids report delivered:false", () => {
     const d = new Dispatcher();
     expect(d.resolveApproval({ id: "nope", decision: "once" })).toBe(false);
+  });
+});
+
+describe("Dispatcher — approval timeout cleanup (R§3.2)", () => {
+  // A lapsed card must leave nothing behind: no buffered card for a later poll to
+  // deliver, no orphaned future for a late approve to resolve as "delivered".
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const approvalGuard: ActionGuard = {
+    check: () => ({ kind: "approval", approval: approvalRequest }),
+  };
+
+  /** Lapse an approval with no poller listening, then poll as a reconnecting
+   * panel would. */
+  async function lapse(path: "item" | "plain") {
+    const d = connectedDispatcher({ guard: approvalGuard });
+    const pending = path === "item" ? d.dispatch(nav) : d.requestApproval(approvalRequest);
+    await vi.advanceTimersByTimeAsync(0); // let the async guard queue the card
+    expect(d.queueDepth).toBe(1);
+    await vi.advanceTimersByTimeAsync(APPROVAL_TIMEOUT_MS);
+    const outcome = await pending;
+    const poll = d.nextAction(1_000);
+    await vi.advanceTimersByTimeAsync(1_000);
+    return { outcome, late: await poll };
+  }
+
+  for (const path of ["item", "plain"] as const) {
+    it(`${path}: the lapsed caller is denied`, async () => {
+      const { outcome } = await lapse(path);
+      if (path === "item") {
+        expect(outcome).toMatchObject({ status: "denied", error: approvalDenial("timeout") });
+      } else {
+        expect(outcome).toBe("deny");
+      }
+    });
+
+    it(`${path}: a later long-poll never delivers the stale card`, async () => {
+      const { late } = await lapse(path);
+      expect(late).toBeNull();
+    });
+
+    it(`${path}: a late approve for the timed-out id reports delivered:false`, async () => {
+      const d = connectedDispatcher({ guard: approvalGuard });
+      const pending = path === "item" ? d.dispatch(nav) : d.requestApproval(approvalRequest);
+      // The panel received the card, then went quiet past the window.
+      const poll = d.nextAction(1_000);
+      await vi.advanceTimersByTimeAsync(0);
+      const card = await poll;
+      if (card?.kind !== "approval") throw new Error("expected an approval item");
+      await vi.advanceTimersByTimeAsync(APPROVAL_TIMEOUT_MS);
+      await pending;
+      expect(d.resolveApproval({ id: card.id, decision: "once" })).toBe(false);
+    });
+
+    it(`${path}: no leaked approval future or queued card after the lapse`, async () => {
+      const d = connectedDispatcher({ guard: approvalGuard });
+      const pending = path === "item" ? d.dispatch(nav) : d.requestApproval(approvalRequest);
+      await vi.advanceTimersByTimeAsync(APPROVAL_TIMEOUT_MS);
+      await pending;
+      expect(d.queueDepth).toBe(0);
+      expect(d.dispose("probe")).toEqual({ actions: 0, approvals: 0 });
+    });
+  }
+
+  it("an answer just inside the window is still honoured (120 s contract unchanged)", async () => {
+    const d = connectedDispatcher();
+    const pending = d.requestApproval(approvalRequest);
+    const poll = d.nextAction(1_000);
+    await vi.advanceTimersByTimeAsync(0);
+    const card = await poll;
+    if (card?.kind !== "approval") throw new Error("expected an approval item");
+    await vi.advanceTimersByTimeAsync(APPROVAL_TIMEOUT_MS - 1);
+    expect(d.resolveApproval({ id: card.id, decision: "site" })).toBe(true);
+    await expect(pending).resolves.toBe("site");
   });
 });
 
