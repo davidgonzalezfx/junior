@@ -36,7 +36,19 @@
 
 ## Wave C — Clean-up (behavior-preserving; gates + full suite must stay green)
 
-- [ ] **C1 — Dead code + comment hygiene sweep** *(~half session)*
+- [x] **C1 — Dead code + comment hygiene sweep** *(~half session)* **DONE 2026-10-26
+  (commits f0f2341 + e9f8505):** deleted `PROTOCOL_API_LEVEL` + its tripwire test,
+  `wrapUntrusted` (strip half untouched), select()-before-typing in the in-page type op, and
+  `PortRouterOptions.onContentMessage` (**deleted, not wired** — content messages travel via
+  `browser.runtime.onMessage` and are enforced in `work-overlay.ts` with `contentMessageAllowed`;
+  `handleMessage` could only ever dispatch approval_response, so the seam was uninvokable by
+  construction and wiring it would have moved the overlay path onto port connections — a behavior
+  change). Comment sweep done per policy across apps/ + packages/ (ID tags, learning tags,
+  Autono-delta bookkeeping, stale "until X lands" out; invariants/plan refs/attributions/
+  decisions.md cites in; the Mx-y inside `mcp/tools.ts` is a runtime string, untouched). Zero-
+  caller proofs per item in the commit message. Gates green (166 protocol = −2 deleted tripwires,
+  229 bridge, 290 ext, 13 tests incl. 2 gated skip, 5 spikes; the read-page 1500-element flake
+  rerun isolated → green).
   - Dead-code inventory (verify zero callers before deleting; delete, don't comment out):
     `PROTOCOL_API_LEVEL = 0` dead constant + its tripwire test (`packages/protocol/src/index.ts:3`,
     R§5.1) — subsumed by H2 if that runs first, skip here to avoid double work;
@@ -220,3 +232,7 @@ U…                       (optional)
 - 2026-10-26 — T1 done · agent tab isolation (pinned "Junior" group tab; per-action active-tab
   resolution retired) · fail-first wrong-tab e2e red→green + 10 unit tests; gates green
   (168 protocol + 229 bridge + 290 ext + 11 harness incl. 2 gated skip + 5 spikes) · 0e12edb, f676d79
+- 2026-10-26 — C1 done · dead-code removal (PROTOCOL_API_LEVEL + tripwire, wrapUntrusted,
+  select-before-typing, PortRouterOptions.onContentMessage — deleted not wired) + comment sweep
+  across apps/ + packages/ · behavior-preserving; gates green, test count −2 (the deleted dead
+  tripwires) · f0f2341, e9f8505
