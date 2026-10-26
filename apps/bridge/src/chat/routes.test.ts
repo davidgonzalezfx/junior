@@ -287,6 +287,85 @@ describe("POST /api/chat (engine api)", () => {
     expect(wireError(await res.json())).toMatch(/invalid messages/);
   });
 
+  it("M5-10: a dangling tool call in replayed history is dropped before the provider sees it", async () => {
+    // The M5-9 panel-close scenario persisted: assistant tool call, no result. The
+    // provider used to reject the whole turn ("Tool result is missing …"); the route
+    // must heal the history instead.
+    const { baseUrl, bodies } = await startMockOpenAI({ text: "HEALED_OK" });
+    const { app } = newApp({
+      providers: {
+        openaiCompatible: [{ id: "openrouter", label: "OpenRouter", baseUrl, apiKey: "sk-test" }],
+      },
+    });
+    const res = await postChat(app, {
+      provider: "openrouter",
+      model: "vendor/model-name",
+      messages: [
+        { id: "u1", role: "user", parts: [{ type: "text", text: "open example.com" }] },
+        {
+          id: "a1",
+          role: "assistant",
+          parts: [
+            { type: "step-start" },
+            { type: "text", text: "Opening example.com" },
+            {
+              type: "tool-navigate",
+              toolCallId: "call_broken",
+              state: "input-available",
+              input: { url: "https://example.com/" },
+            },
+          ],
+        },
+        { id: "u2", role: "user", parts: [{ type: "text", text: "did it work?" }] },
+      ],
+    });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("HEALED_OK");
+    // The provider wire carries no trace of the dangling call.
+    const wire = JSON.stringify(bodies[0]);
+    expect(wire).not.toContain("call_broken");
+    expect(wire).not.toContain('"tool_calls"');
+    // The resolved text parts still made it through (history isn't nuked).
+    expect(wire).toContain("Opening example.com");
+  });
+
+  it("M5-10: a paired tool call + result in history survives sanitization (agent continue)", async () => {
+    const { baseUrl, bodies } = await startMockOpenAI({ text: "CONTINUED_OK" });
+    const { app } = newApp({
+      providers: {
+        openaiCompatible: [{ id: "openrouter", label: "OpenRouter", baseUrl, apiKey: "sk-test" }],
+      },
+    });
+    const res = await postChat(app, {
+      provider: "openrouter",
+      model: "vendor/model-name",
+      messages: [
+        { id: "u1", role: "user", parts: [{ type: "text", text: "open example.com" }] },
+        {
+          id: "a1",
+          role: "assistant",
+          parts: [
+            { type: "step-start" },
+            {
+              type: "tool-navigate",
+              toolCallId: "call_paired",
+              state: "output-available",
+              input: { url: "https://example.com/" },
+              output: '{"title":"Example"}',
+            },
+          ],
+        },
+        { id: "u2", role: "user", parts: [{ type: "text", text: "and now?" }] },
+      ],
+    });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("CONTINUED_OK");
+    // The paired call converts to assistant tool_calls + a tool-role result message.
+    const wire = JSON.stringify(bodies[0]);
+    expect(wire).toContain("call_paired");
+    expect(wire).toContain('"role":"tool"');
+  });
+
   it("rejects a missing cliPath override before spawning (M4-4; the engine's own tests cover the happy paths)", async () => {
     const { app } = newApp({ cliPath: "/no/such/claude" });
     const res = await postChat(app, {

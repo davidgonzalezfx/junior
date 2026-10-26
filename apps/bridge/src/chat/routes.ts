@@ -26,6 +26,7 @@ import { loadConfig } from "../config.js";
 import type { Dispatcher } from "../dispatcher/queue.js";
 import { UnknownProviderError, resolveModel } from "./registry.js";
 import { AllProvidersFailedError, buildCandidateChain, firstSuccessfulStream } from "./fallback.js";
+import { dropDanglingToolCalls } from "./messages-sanitize.js";
 import { browserTools } from "./tools.js";
 import {
   CliSessionMap,
@@ -142,7 +143,12 @@ export function chatRoutes(deps: ChatDeps) {
     try {
       // v7: async. This is the real validator for the loose `messages` wire — garbage
       // UIMessages throw here and surface as a 400, not a mid-stream error part.
-      messages = await convertToModelMessages(body.data.messages as unknown as UIMessage[]);
+      // M5-10: dangling tool calls (panel closed mid-tool → persisted without a
+      // result) are dropped first — replayed broken history otherwise makes every
+      // provider reject the whole turn ("Tool result is missing for tool call …").
+      messages = await convertToModelMessages(
+        dropDanglingToolCalls(body.data.messages as unknown as UIMessage[]),
+      );
     } catch (error) {
       return c.json(
         { error: `invalid messages — ${String(error instanceof Error ? error.message : error)}` },
