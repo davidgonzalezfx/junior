@@ -4,7 +4,8 @@
 // prop — restored messages seed the transcript, finished exchanges flow to onRecord.
 // M5-1: tool-call cards, reasoning collapse, usage chips, empty/error states. M5-7:
 // agent-mode sends run the host-permission gate; plain chat never touches it.
-// (~600 lines — over the ~400 budget: one shared SSE/fetch harness serves every panel
+// M5-10: mid-tool stream death finalizes the tool part (live + restored sessions).
+// (~690 lines — over the ~400 budget: one shared SSE/fetch harness serves every panel
 // flow; splitting the render tests out would duplicate it rather than simplify.)
 /** @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -637,15 +638,12 @@ describe("ChatPanel", () => {
       const card = screen.getByText("navigate").closest("details");
       expect(card?.getAttribute("data-state")).toBe("output-error");
     });
-    expect(screen.getByText("navigate").closest("details")!.textContent).toContain(
-      "interrupted",
-    );
+    expect(screen.getByText("navigate").closest("details")!.textContent).toContain("interrupted");
     // …and the finalized part reaches the history record, not the running one.
     await waitFor(() => {
       const last = onRecord.mock.calls.at(-1)?.[0] as UIMessage[] | undefined;
       const part = last?.[1]?.parts.find((p) => "toolCallId" in p) as
-        | { state: string; errorText: string }
-        | undefined;
+        { state: string; errorText: string } | undefined;
       expect(part?.state).toBe("output-error");
       expect(part?.errorText).toContain("interrupted");
     });

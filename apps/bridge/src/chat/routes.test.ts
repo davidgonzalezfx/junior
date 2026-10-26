@@ -2,6 +2,9 @@
 // (key + OpenRouter) from the panel"). Both provider wires are in-process mocks: an
 // OpenAI-compatible SSE server (trimmed from the M0-4 spike mock) and an Anthropic SSE
 // Response handed to the SDK through the registry's fetch seam.
+// M5-10: broken-history healing + per-provider error text in the 502 body.
+// (~575 lines — over the ~400 budget: the two provider-wire mocks + the app helper are
+// shared by every chat describe block; per-block copies would triple the mock code.)
 import { createServer, type Server } from "node:http";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
