@@ -8,8 +8,6 @@ import type { UIMessage } from "ai";
 import {
   MAX_SESSIONS,
   INTERRUPTED_TOOL_ERROR,
-  SessionStore,
-  WRITE_DEBOUNCE_MS,
   deleteSession,
   deriveTitle,
   emptySession,
@@ -27,6 +25,7 @@ import {
   upsertSession,
   type StoredSession,
 } from "@/lib/history";
+import { SessionStore, WRITE_DEBOUNCE_MS } from "@/lib/session-store";
 
 function makeSession(overrides: Partial<StoredSession> = {}): StoredSession {
   return { ...emptySession(), ...overrides };

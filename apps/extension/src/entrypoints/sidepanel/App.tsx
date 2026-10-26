@@ -14,16 +14,13 @@ import { SecuritySettings } from "@/components/settings/security-settings";
 import { useApprovalCards } from "@/hooks/use-approval-cards";
 import { WorkOverlayStatus } from "@/components/work-overlay-status";
 import {
-  SessionStore,
-  attachWriteOnHide,
-  deriveTitle,
   emptySession,
   getActiveSessionId,
   loadSessions,
-  renameSession,
   setActiveSessionId,
   type StoredSession,
 } from "@/lib/history";
+import { SessionStore, attachWriteOnHide, snapshotFor } from "@/lib/session-store";
 import { isOnboarded } from "@/lib/settings";
 import { runStorageMigrations } from "@/lib/storage-migrations";
 
@@ -34,8 +31,9 @@ export default function App() {
   const [session, setSession] = useState<StoredSession | null>(null);
   const [trimmed, setTrimmed] = useState<StoredSession[]>([]);
   const storeRef = useRef<SessionStore | null>(null);
-  // Latest active session (incl. renames) — handleRecord reads it to keep the
-  // user's title across debounced writes.
+  // Latest active session (incl. renames + recorded messages). `session` state
+  // only changes on switch/rename, so leaving the chat view re-syncs it from here —
+  // otherwise the remounted ChatPanel would re-seed (and re-record) a stale transcript.
   const sessionRef = useRef<StoredSession | null>(null);
 
   if (storeRef.current === null) {
@@ -81,33 +79,46 @@ export default function App() {
     void setActiveSessionId(next.id);
   }, []);
 
+  const listSessions = useCallback(() => store.list(), [store]);
+
+  const leaveChat = useCallback((next: View) => {
+    if (sessionRef.current !== null) setSession(sessionRef.current);
+    setView(next);
+  }, []);
+
   // ChatPanel calls this on every messages change; the store debounces the write.
   const handleRecord = useCallback(
     (messages: UIMessage[]) => {
       const base = sessionRef.current;
-      // An untouched empty chat never reaches storage.
-      if (base === null || messages.length === 0) return;
-      const next: StoredSession = {
-        ...base,
-        messages,
-        updatedAt: Date.now(),
-        title: base.renamed ? base.title : deriveTitle(messages),
-      };
+      const next = base === null ? null : snapshotFor(base, messages);
+      if (next === null) return;
       sessionRef.current = next;
       store.record(next);
     },
     [store],
   );
 
-  const handleRename = useCallback((title: string) => {
-    const base = sessionRef.current;
-    if (base === null) return;
-    const next = { ...base, title: title.trim() || base.title, renamed: true };
-    sessionRef.current = next;
-    setSession(next);
-    // Persist for the history list; a not-yet-recorded chat is simply absent.
-    void renameSession(base.id, next.title);
-  }, []);
+  const handleRename = useCallback(
+    (id: string, title: string) => {
+      const base = sessionRef.current;
+      if (base?.id === id) {
+        const next = { ...base, title: title.trim() || base.title, renamed: true };
+        sessionRef.current = next;
+        setSession(next);
+      }
+      return store.rename(id, title);
+    },
+    [store],
+  );
+
+  // Deleting the active chat detaches it first, so nothing records into it again.
+  const handleDelete = useCallback(
+    (id: string) => {
+      if (sessionRef.current?.id === id) pointAt(emptySession());
+      return store.delete(id);
+    },
+    [store, pointAt],
+  );
 
   if (view === "loading") {
     return <div className="h-screen bg-background" />;
@@ -128,14 +139,16 @@ export default function App() {
           activeId={session.id}
           trimmed={trimmed}
           onDismissTrimmed={() => setTrimmed([])}
+          listSessions={listSessions}
           onOpen={(id) => {
-            void loadSessions().then((sessions) => {
+            void listSessions().then((sessions) => {
               const picked = sessions.find((s) => s.id === id);
               if (picked !== undefined) pointAt(picked);
               setView("chat");
             });
           }}
-          onRenameActive={handleRename}
+          onRename={handleRename}
+          onDelete={handleDelete}
           onNew={() => {
             pointAt(emptySession());
             setView("chat");
@@ -151,7 +164,7 @@ export default function App() {
                 type="button"
                 aria-label="Open History"
                 className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                onClick={() => setView("history")}
+                onClick={() => leaveChat("history")}
               >
                 History
               </button>
@@ -159,7 +172,7 @@ export default function App() {
                 type="button"
                 aria-label="Open Settings"
                 className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                onClick={() => setView("providers")}
+                onClick={() => leaveChat("providers")}
               >
                 Settings
               </button>

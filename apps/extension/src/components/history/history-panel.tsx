@@ -1,15 +1,12 @@
 // History view (plan §5.3): sessions list over `junior_sessions`, text search,
 // inline rename, delete, markdown export + the trim notice ("beyond 200 sessions
-// with export prompt"). Storage mutations go through lib/history; this component
-// reloads the list after each one.
-import { useCallback, useEffect, useState } from "react";
+// with export prompt"). Reads and mutations go through App's SessionStore (the
+// single writer); each resolves with the fresh list this view renders.
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
-  deleteSession,
   downloadMarkdown,
   exportFilename,
-  loadSessions,
-  renameSession,
   searchSessions,
   sessionToMarkdown,
   type StoredSession,
@@ -20,10 +17,10 @@ interface HistoryPanelProps {
   /** Sessions dropped by the 200 cap, awaiting the export prompt (or dismissal). */
   trimmed: StoredSession[];
   onDismissTrimmed: () => void;
+  listSessions: () => Promise<StoredSession[]>;
   onOpen: (id: string) => void;
-  /** Rename of the ACTIVE session routes through App, so the next debounced
-   * history write keeps the user's title instead of re-deriving it. */
-  onRenameActive: (title: string) => void;
+  onRename: (id: string, title: string) => Promise<StoredSession[]>;
+  onDelete: (id: string) => Promise<StoredSession[]>;
   onNew: () => void;
   onBack: () => void;
 }
@@ -41,8 +38,10 @@ export function HistoryPanel({
   activeId,
   trimmed,
   onDismissTrimmed,
+  listSessions,
   onOpen,
-  onRenameActive,
+  onRename,
+  onDelete,
   onNew,
   onBack,
 }: HistoryPanelProps) {
@@ -51,19 +50,13 @@ export function HistoryPanel({
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
 
-  const refresh = useCallback(() => {
-    void loadSessions().then(setSessions);
-  }, []);
-  useEffect(refresh, [refresh]);
+  useEffect(() => {
+    void listSessions().then(setSessions);
+  }, [listSessions]);
 
   const commitRename = (id: string) => {
     setRenamingId(null);
-    if (id === activeId) {
-      onRenameActive(renameDraft);
-      refresh();
-    } else {
-      void renameSession(id, renameDraft).then(setSessions);
-    }
+    void onRename(id, renameDraft).then(setSessions);
   };
 
   const filtered = searchSessions(sessions ?? [], query);
@@ -177,7 +170,7 @@ export function HistoryPanel({
                   aria-label={`Delete ${s.title}`}
                   title="Delete"
                   className="rounded px-1 text-xs text-muted-foreground hover:bg-accent hover:text-destructive"
-                  onClick={() => void deleteSession(s.id).then(setSessions)}
+                  onClick={() => void onDelete(s.id).then(setSessions)}
                 >
                   ✕
                 </button>

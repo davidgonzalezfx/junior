@@ -12,6 +12,7 @@ import { assistantMessage, userMessage } from "@junior/testkit/chat";
 import { sseData } from "@junior/testkit/wire";
 import { ChatPanel } from "@/components/chat-panel";
 import { emptySession } from "@/lib/history";
+import { snapshotFor } from "@/lib/session-store";
 import {
   UI_STREAM,
   chatRequests,
@@ -99,6 +100,22 @@ describe("ChatPanel", () => {
 
     expect(await screen.findByText("BANANA42 noted.")).toBeTruthy();
     expect(screen.getByText("remember BANANA42")).toBeTruthy();
+  });
+
+  it("R6.5: the mount-time onRecord is the seed itself, so App records nothing", async () => {
+    await seedPairedDefaults();
+    vi.stubGlobal("fetch", stubFetch());
+
+    const session = emptySession();
+    session.messages = [userMessage("seeded", "u1"), assistantMessage("reply", "a1")];
+    const onRecord = vi.fn();
+    render(<ChatPanel session={session} onRecord={onRecord} />);
+    await screen.findByText("reply");
+
+    expect(onRecord).toHaveBeenCalled();
+    for (const [messages] of onRecord.mock.calls as [UIMessage[]][]) {
+      expect(snapshotFor(session, messages)).toBeNull(); // same element refs → no-op
+    }
   });
 
   it("⌘K flow: the badge opens the palette, picking a model retargets the next send + persists", async () => {

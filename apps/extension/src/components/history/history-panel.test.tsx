@@ -6,7 +6,13 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fakeBrowser } from "wxt/testing/fake-browser";
 import { HistoryPanel } from "@/components/history/history-panel";
-import { saveSessions, type StoredSession } from "@/lib/history";
+import {
+  deleteSession,
+  loadSessions,
+  renameSession,
+  saveSessions,
+  type StoredSession,
+} from "@/lib/history";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -30,8 +36,10 @@ function setupPanel(overrides: Partial<Parameters<typeof HistoryPanel>[0]> = {})
     activeId: "s1",
     trimmed: [],
     onDismissTrimmed: vi.fn(),
+    listSessions: loadSessions,
     onOpen: vi.fn(),
-    onRenameActive: vi.fn(),
+    onRename: vi.fn(renameSession),
+    onDelete: vi.fn(deleteSession),
     onNew: vi.fn(),
     onBack: vi.fn(),
     ...overrides,
@@ -83,7 +91,7 @@ describe("HistoryPanel", () => {
     });
   });
 
-  it("renames the ACTIVE session through onRenameActive (not direct storage)", async () => {
+  it("renames the ACTIVE session through onRename (App's store, not direct storage)", async () => {
     await saveSessions([makeSession({ id: "s1", title: "Before", updatedAt: 1 })]);
     const props = setupPanel();
     await screen.findByRole("button", { name: "Before" });
@@ -93,10 +101,10 @@ describe("HistoryPanel", () => {
     fireEvent.change(input, { target: { value: "After" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
-    expect(props.onRenameActive).toHaveBeenCalledWith("After");
+    expect(props.onRename).toHaveBeenCalledWith("s1", "After");
   });
 
-  it("renames an INACTIVE session directly in storage", async () => {
+  it("renames an INACTIVE session and re-renders from the returned list", async () => {
     await saveSessions([
       makeSession({ id: "s1", title: "Active", updatedAt: 2 }),
       makeSession({ id: "s2", title: "Other", updatedAt: 1 }),
@@ -114,12 +122,12 @@ describe("HistoryPanel", () => {
     });
   });
 
-  it("deletes a session and drops it from the list", async () => {
+  it("deletes a session through onDelete and drops it from the list", async () => {
     await saveSessions([
       makeSession({ id: "s1", title: "Keep", updatedAt: 2 }),
       makeSession({ id: "s2", title: "Gone", updatedAt: 1 }),
     ]);
-    setupPanel();
+    const props = setupPanel();
     await screen.findByRole("button", { name: "Gone" });
 
     fireEvent.click(screen.getByLabelText("Delete Gone"));
@@ -127,6 +135,7 @@ describe("HistoryPanel", () => {
       expect(screen.queryByRole("button", { name: "Gone" })).toBeNull();
     });
     expect(screen.getByRole("button", { name: "Keep" })).toBeTruthy();
+    expect(props.onDelete).toHaveBeenCalledWith("s2");
   });
 
   it("exports a session as a markdown download", async () => {

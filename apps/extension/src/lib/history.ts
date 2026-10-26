@@ -1,8 +1,7 @@
-// Session history — single source of truth in chrome.storage.local under
-// `junior_sessions` (plan §5.3): sessions list, text search, rename, delete,
-// markdown export; debounced writes (500 ms) + write-on-hide; trimming beyond
-// 200 sessions with a dropped-list callback so the UI can offer an export
-// prompt.
+// Session history in chrome.storage.local under `junior_sessions` (plan §5.3):
+// sessions list, text search, markdown export, persist-time compaction. The
+// panel writes only through SessionStore (lib/session-store.ts) — debounced
+// writes + write-on-hide, rename/delete, the 200-session trim.
 import { browser } from "wxt/browser";
 import type { UIMessage } from "ai";
 
@@ -10,7 +9,6 @@ const SESSIONS_KEY = "junior_sessions";
 const ACTIVE_KEY = "junior_active_session";
 
 export const MAX_SESSIONS = 200;
-export const WRITE_DEBOUNCE_MS = 500;
 
 export interface StoredSession {
   id: string;
@@ -153,6 +151,9 @@ export async function loadSessions(): Promise<StoredSession[]> {
 export async function saveSessions(list: StoredSession[]): Promise<void> {
   await browser.storage.local.set({ [SESSIONS_KEY]: list });
 }
+
+// Raw storage edits. The panel goes through SessionStore.rename/delete, which
+// order these behind in-flight writes and keep the pending snapshots in step.
 
 export async function renameSession(id: string, title: string): Promise<StoredSession[]> {
   const list = await loadSessions();
@@ -298,81 +299,4 @@ export async function saveSessionsDroppingOldest(
       kept = kept.slice(0, kept.length - drop);
     }
   }
-}
-
-// --- debounced store -----------------------------------------------------------
-
-/** Client-side persistence gate: record() queues a single debounced write;
- * flush() (panel hide / pagehide) lands any pending snapshot immediately.
- * Every flush reads fresh from storage, so a flush after a panel reload is safe. */
-export class SessionStore {
-  private timer: ReturnType<typeof setTimeout> | null = null;
-  private readonly pending = new Map<string, StoredSession>();
-  private writes: Promise<void> = Promise.resolve();
-
-  constructor(
-    private readonly options: {
-      delayMs?: number;
-      maxSessions?: number;
-      onTrimmed?: (dropped: StoredSession[]) => void;
-    } = {},
-  ) {}
-
-  record(session: StoredSession): void {
-    this.pending.set(session.id, session);
-    if (this.timer !== null) clearTimeout(this.timer);
-    this.timer = setTimeout(() => {
-      this.timer = null;
-      void this.flush();
-    }, this.options.delayMs ?? WRITE_DEBOUNCE_MS);
-    // Pending timers hang vitest workers at exit; the browser
-    // ignores unref.
-    (this.timer as unknown as { unref?: () => void }).unref?.();
-  }
-
-  async flush(): Promise<void> {
-    if (this.timer !== null) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
-    if (this.pending.size === 0) return;
-    const batch = [...this.pending.values()];
-    this.pending.clear();
-    this.writes = this.writes.then(
-      () => this.writeBatch(batch),
-      () => this.writeBatch(batch),
-    );
-    await this.writes;
-  }
-
-  private async writeBatch(batch: StoredSession[]): Promise<void> {
-    const stale = new Set(batch.map((s) => s.id));
-    const next = [...batch, ...(await loadSessions()).filter((s) => !stale.has(s.id))];
-    next.sort((a, b) => b.updatedAt - a.updatedAt);
-    const { kept, dropped } = trimSessions(next, this.options.maxSessions ?? MAX_SESSIONS);
-    // Finalize interrupted tools and trim tool payloads on the way
-    // in — a panel close mid-tool must persist "failed", not "running…" — then let
-    // the quota fallback shed oldest sessions if the write still fails.
-    const sanitized = kept.map((s) => ({
-      ...s,
-      messages: sanitizeSessionMessages(finalizeInterruptedToolParts(s.messages)),
-    }));
-    await saveSessionsDroppingOldest(sanitized, saveSessions, this.options.onTrimmed);
-    if (dropped.length > 0) this.options.onTrimmed?.(dropped);
-  }
-}
-
-/** Write-on-hide (plan §5.3): the side panel closing fires
- * visibilitychange→hidden and pagehide. Returns a detach function. */
-export function attachWriteOnHide(store: SessionStore): () => void {
-  const onVisibility = () => {
-    if (document.visibilityState === "hidden") void store.flush();
-  };
-  const onPageHide = () => void store.flush();
-  document.addEventListener("visibilitychange", onVisibility);
-  window.addEventListener("pagehide", onPageHide);
-  return () => {
-    document.removeEventListener("visibilitychange", onVisibility);
-    window.removeEventListener("pagehide", onPageHide);
-  };
 }
