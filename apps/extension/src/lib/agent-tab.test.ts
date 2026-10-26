@@ -49,6 +49,59 @@ function fakeHost(
   };
 }
 
+interface StubGroup {
+  id: number;
+  title: string;
+  color: string;
+  windowId?: number;
+}
+
+/** Stub the unimplemented tabs.group / tabGroups APIs onto fakeBrowser (M5-7
+ * pattern). fakeBrowser's tabs.query ignores groupId — stand in a groupId-aware
+ * one (tabs.get hands back a copy, so the mapping lives in a Map). */
+function stubTabGroups() {
+  let nextGroupId = 1;
+  const groups = new Map<number, StubGroup>();
+  const groupIdOfTab = new Map<number, number>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const anyBrowser = fakeBrowser as any;
+  const prevGroup = anyBrowser.tabs.group;
+  const prevQuery = anyBrowser.tabs.query;
+  const prevTabGroups = anyBrowser.tabGroups;
+  anyBrowser.tabs.group = async (opts: { tabIds: number; groupId?: number }) => {
+    let id = opts.groupId;
+    if (id === undefined) {
+      id = nextGroupId++;
+      groups.set(id, { id, title: "", color: "grey" });
+    }
+    groupIdOfTab.set(opts.tabIds, id);
+    return id;
+  };
+  anyBrowser.tabs.query = async (qi: Record<string, unknown>) =>
+    (await prevQuery.call(anyBrowser.tabs, qi)).filter(
+      (t: { id: number }) => qi.groupId === undefined || groupIdOfTab.get(t.id) === qi.groupId,
+    );
+  anyBrowser.tabGroups = {
+    query: async (qi: { title?: string }) =>
+      [...groups.values()].filter((g) => qi.title === undefined || g.title === qi.title),
+    update: async (id: number, props: { title?: string; color?: string }) => {
+      const g = groups.get(id);
+      if (g) Object.assign(g, props);
+      return g;
+    },
+  };
+  return {
+    groups,
+    groupIdOfTab,
+    restore() {
+      anyBrowser.tabs.group = prevGroup;
+      anyBrowser.tabs.query = prevQuery;
+      if (prevTabGroups === undefined) delete anyBrowser.tabGroups;
+      else anyBrowser.tabGroups = prevTabGroups;
+    },
+  };
+}
+
 beforeEach(() => fakeBrowser.reset());
 
 describe("AgentTabManager", () => {
@@ -87,6 +140,37 @@ describe("AgentTabManager", () => {
     expect(host.created).toBe(1);
   });
 
+  it("concurrent resolves at task start share ONE create (overlay + first action)", async () => {
+    for (const callers of [2, 3]) {
+      const host = fakeHost();
+      // A real create is slow (tabs.create + group + label) — yield so the
+      // callers genuinely overlap.
+      const realCreate = host.create.bind(host);
+      host.create = async () => {
+        await new Promise((r) => setTimeout(r, 5));
+        return await realCreate();
+      };
+      const manager = new AgentTabManager(host);
+      const tabs = await Promise.all(Array.from({ length: callers }, () => manager.resolve()));
+      expect(host.created).toBe(1);
+      expect(new Set(tabs.map((t) => t?.id))).toEqual(new Set([101]));
+    }
+  });
+
+  it("a failed resolve does not wedge later calls", async () => {
+    const host = fakeHost();
+    const realCreate = host.create.bind(host);
+    host.create = async () => {
+      throw new Error("tabs.create failed");
+    };
+    const manager = new AgentTabManager(host);
+    await expect(Promise.all([manager.resolve(), manager.resolve()])).rejects.toThrow(
+      "tabs.create failed",
+    );
+    host.create = realCreate;
+    await expect(manager.resolve()).resolves.toMatchObject({ id: 101 });
+  });
+
   it("resolves null when create yields an id-less tab", async () => {
     const host = fakeHost();
     host.create = async () => ({ url: "about:blank" });
@@ -103,48 +187,30 @@ describe("defaultAgentTabHost (fakeBrowser)", () => {
   });
 
   it("groups + labels the created tab when the tabGroups APIs exist", async () => {
-    let nextGroupId = 1;
-    const groups = new Map<number, { id: number; title: string; color: string }>();
-    // Stubbing unimplemented chrome APIs onto fakeBrowser (M5-7 pattern).
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyBrowser = fakeBrowser as any;
-    const prevGroup = anyBrowser.tabs.group;
-    const prevQuery = anyBrowser.tabs.query;
-    const prevTabGroups = anyBrowser.tabGroups;
-    // fakeBrowser's tabs.query ignores groupId — stand in a groupId-aware one.
-    // (tabs.get hands back a copy, so the mapping lives in a Map.)
-    const groupIdOfTab = new Map<number, number>();
-    anyBrowser.tabs.group = async (opts: { tabIds: number }) => {
-      const id = nextGroupId++;
-      groups.set(id, { id, title: "", color: "grey" });
-      groupIdOfTab.set(opts.tabIds, id);
-      return id;
-    };
-    anyBrowser.tabs.query = async (qi: Record<string, unknown>) =>
-      (await prevQuery.call(anyBrowser.tabs, qi)).filter(
-        (t: { id: number }) => qi.groupId === undefined || groupIdOfTab.get(t.id) === qi.groupId,
-      );
-    anyBrowser.tabGroups = {
-      query: async (qi: { title?: string }) =>
-        [...groups.values()].filter((g) => qi.title === undefined || g.title === qi.title),
-      update: async (id: number, props: { title?: string; color?: string }) => {
-        const g = groups.get(id);
-        if (g) Object.assign(g, props);
-        return g;
-      },
-    };
+    const stub = stubTabGroups();
     try {
       const tab = await defaultAgentTabHost.create();
-      const group = [...groups.values()][0];
+      const group = [...stub.groups.values()][0];
       expect(group).toBeDefined();
       expect(group!.title).toBe(JUNIOR_TAB_GROUP_TITLE);
       expect(group!.color).toBe("blue");
       await expect(defaultAgentTabHost.findExisting()).resolves.toMatchObject({ id: tab.id });
     } finally {
-      anyBrowser.tabs.group = prevGroup;
-      anyBrowser.tabs.query = prevQuery;
-      if (prevTabGroups === undefined) delete anyBrowser.tabGroups;
-      else anyBrowser.tabGroups = prevTabGroups;
+      stub.restore();
+    }
+  });
+
+  it("create joins an existing Junior group instead of making a second one", async () => {
+    const stub = stubTabGroups();
+    // A leftover "Junior" group with no tab findExisting can adopt (the
+    // remembered tab is gone).
+    stub.groups.set(9, { id: 9, title: JUNIOR_TAB_GROUP_TITLE, color: "blue", windowId: 1 });
+    try {
+      const tab = await defaultAgentTabHost.create();
+      expect(stub.groups.size).toBe(1);
+      expect(stub.groupIdOfTab.get(tab.id!)).toBe(9);
+    } finally {
+      stub.restore();
     }
   });
 

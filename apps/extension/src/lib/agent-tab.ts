@@ -40,11 +40,23 @@ export interface AgentTabHost {
 
 export class AgentTabManager {
   private cachedId: number | null = null;
+  private inFlight: Promise<ActiveTab | null> | null = null;
 
   constructor(private readonly host: AgentTabHost) {}
 
-  /** The agent tab — same id for the whole task regardless of user focus. */
-  async resolve(): Promise<ActiveTab | null> {
+  /** The agent tab — same id for the whole task regardless of user focus.
+   * Single-flight: at task start the work overlay and the first action resolve
+   * concurrently; separate resolutions would each miss the cache and each
+   * create a tab (two "Junior" groups). Cleared on settle, rejection included,
+   * so a failed resolution never wedges the next. */
+  resolve(): Promise<ActiveTab | null> {
+    this.inFlight ??= this.resolveOnce().finally(() => {
+      this.inFlight = null;
+    });
+    return this.inFlight;
+  }
+
+  private async resolveOnce(): Promise<ActiveTab | null> {
     const remembered = this.cachedId ?? (await this.host.recall());
     if (remembered !== null) {
       const tab = await this.host.getTab(remembered);
@@ -68,6 +80,15 @@ export class AgentTabManager {
       status: tab.status,
       windowId: tab.windowId,
     };
+  }
+}
+
+async function findJuniorGroup(): Promise<{ id: number; windowId?: number } | undefined> {
+  try {
+    const [group] = await browser.tabGroups.query({ title: JUNIOR_TAB_GROUP_TITLE });
+    return group;
+  } catch {
+    return undefined; // no tabGroups API/permission — create ungrouped
   }
 }
 
@@ -99,9 +120,18 @@ export const defaultAgentTabHost: AgentTabHost = {
     return null;
   },
   async create() {
-    const tab = await browser.tabs.create({ active: false, pinned: true });
+    // Join a "Junior" group that already exists (created in its window) rather
+    // than making a second one beside it.
+    const group = await findJuniorGroup();
+    const tab = await browser.tabs.create({
+      active: false,
+      pinned: true,
+      ...(group?.windowId === undefined ? {} : { windowId: group.windowId }),
+    });
     try {
-      if (tab.id !== undefined) {
+      if (tab.id !== undefined && group !== undefined) {
+        await browser.tabs.group({ tabIds: tab.id, groupId: group.id });
+      } else if (tab.id !== undefined) {
         const groupId = await browser.tabs.group({
           tabIds: tab.id,
           createProperties: tab.windowId === undefined ? undefined : { windowId: tab.windowId },
