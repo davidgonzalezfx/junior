@@ -5,7 +5,7 @@
 
 **Updated:** 2026-10-26
 **Current milestone:** M5 Polish + hardening — ✅ **complete (5/5)** incl. M5-6/M5-7/M5-9/M5-10 bugfixes; `docs/qa.md` all green (the plan §8 M5 accept gate)
-**Current task:** none claimed (**next up: T2** per docs/workplan-post-m5.md — Wave C closed with C3; milestone list M0–M5 done. Open seeds live at the bottom of this file)
+**Current task:** none claimed (**next up: T3** per docs/workplan-post-m5.md — T2 done; milestone list M0–M5 done. Open seeds live at the bottom of this file)
 **Current blockers:** none
 
 ---
@@ -421,6 +421,11 @@
 - [zod] `z.enum(PERMISSION_MODES)` takes the guard.ts `as const` tuple directly (zod v4), so config.ts imports the runtime constant from guard.ts. guard.ts stays pure: its only import is a type from approval.ts, so no cycle.
 - [bridge] chat/ layout after C3: routes.ts = validation + api engine + fallback; cli-route.ts = engine "cli" stream writer; metadata.ts = both usage-chip mappers (cliResultToMetadata is no longer exported from engine-cli.ts).
 
+### 2026-10-26 (post-M5 T2 CLI stdout line-buffering session)
+- [node] Child stdout `data` events end at arbitrary byte offsets. Any line protocol has to carry the trailing fragment over to the next chunk and flush it on `close`, which fires only after stdout ends. `setEncoding("utf8")` uses a StringDecoder, so multi-byte chars split across chunks survive. JSON.parse treats a trailing `\r` as whitespace, so CRLF lines parse.
+- [test] To pin chunk boundaries deterministically, use a fake child behind `SpawnFn`: an EventEmitter with PassThrough stdio, one `setImmediate` between writes, then `emit("close", 0, null)`. A real `node -e` pipe coalesces writes unpredictably.
+- [test] `engine-cli.route.test.ts` turn-1/turn-2 test (two real node spawns) hit its 5 s timeout once under full `pnpm -r test` load. It is green isolated and on reruns. It is a load flake, like read-page's.
+
 ## Backlog seeds
 
 > Ideas discovered mid-work land here (protocol: CLAUDE.md). Never into the current diff.
@@ -484,3 +489,4 @@
 - 2026-10-26 · post-M5 C1 · behavior-preserving clean-up green: dead code deleted (PROTOCOL_API_LEVEL + its tripwire test, wrapUntrusted — strip half untouched, select()-before-typing in the in-page type op, PortRouterOptions.onContentMessage — deleted not wired: content messages are enforced in work-overlay.ts via runtime.onMessage, the seam was uninvokable by construction) + comment sweep across apps/ + packages/ (Mx-y/learning tags, Autono-delta bookkeeping, stale "until X lands" out; invariants, plan § refs, Autono attributions, decisions.md cites in — mcp/tools.ts's Mx-y is a runtime string, untouched); zero-caller grep proofs per deletion in the commit message; gates green, test count −2 exactly (the deleted dead tripwires: 166 protocol + 229 bridge + 290 ext + 13 tests incl. 2 gated skip + 5 spikes; read-page 1500-element flake rerun isolated → green); workplan-post-m5.md ticked · f0f2341, e9f8505
 - 2026-10-26 · post-M5 C2 · `@junior/testkit` + test dedup green, behavior-preserving: jsdom layout stubs (stacked rect + elementFromPoint for fake-tab/read-page; fixed-origin makeVisible for in-page, kept as two factories because they are genuinely different layouts), Anthropic/UI SSE builders, CLI stream-json fixtures, UIMessage factories, OpenAI-compat mock all live in testkit with byte-equality pins. Over-budget notes retired: chat-panel 689→299 (+agent 252), engine-cli 630→250 (+run 106, +route 182), routes 578→245 (+fallback 118, +agent 81), read-page 427→393. Assertions verbatim (407 expect statements before/after, identical multiset). Gates: 166 protocol + 229 bridge + 290 ext + 13 tests incl. 2 gated skip + 5 spikes (1 env-gated skip, no keys in shell) + 6 new testkit pins · 2a2bc3e, 400ffbf, eb5dc0b, fd19b62
 - 2026-10-26 · post-M5 C3 · light abstractions, behavior-preserving: chat/routes.ts 269→186 (CLI branch → cli-route.ts 70, both metadata mappers → metadata.ts 53, cliResultToMetadata test → metadata.test.ts); permission-mode enum single source = guard.ts PERMISSION_MODES (config.ts JuniorConfig + ExtensionSettings schemas now `z.enum(PERMISSION_MODES)`). Gates: 166 protocol + 229 bridge + 290 ext (read-page 1500-element flake, isolated rerun green) + 13 tests incl. 2 gated skip + 5 spikes (1 env-gated skip) + 6 testkit · ed2040e, cd05e19
+- 2026-10-26 · post-M5 T2 · CLI stdout line-buffering green: runCliTurn carries the partial line across stdout data chunks and flushes on close (review R3.1: split long lines caused "produced no result event" and dropped tool steps); false-invariant comment removed; fail-first engine-cli.chunking.test.ts 6/8 red → 8/8 green; gates 166 protocol + 237 bridge + 290 ext + 13 tests incl. 2 gated skip + 5 spikes + 6 testkit (read-page + engine-cli.route load flakes rerun green) · fcc8e23

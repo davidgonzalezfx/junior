@@ -124,7 +124,11 @@
   - Files: `apps/extension/src/entrypoints/background.ts`, `lib/agent-loop.ts`,
     `lib/executors/*` (they take tabId today — verify), `lib/port-router.ts`, manifest
     (`tabGroups` permission), protocol if the action schema needs an explicit tabId field.
-- [ ] **T2 — CLI stdout line-buffering** *(R§3.1)*
+- [x] **T2 — CLI stdout line-buffering** *(R§3.1)*
+  **DONE 2026-10-26 (commit fcc8e23):** `runCliTurn` holds the trailing partial line until its
+  newline and flushes it on close; `setEncoding("utf8")` already decodes split multi-byte chars.
+  False-invariant comment removed. Fail-first: `chat/engine-cli.chunking.test.ts` (fake child via
+  the spawnImpl seam, deterministic chunk boundaries) 6/8 red pre-fix → 8/8 green.
   - `apps/bridge/src/chat/engine-cli.ts:219-234`: `chunk.split("\n")` loses events split across
     chunk boundaries → "produced no result event" on successful turns. Fix: accumulate + split on
     `\n`, keep the trailing fragment (or `readline.createInterface` like `mcp/stdio-proxy.ts:137`).
@@ -263,3 +267,8 @@ U…                       (optional)
   enum single-sourced on PERMISSION_MODES · pure moves, zero behavior change; gates green
   (166 protocol + 229 bridge + 290 ext + 13 tests incl. 2 gated skip + 5 spikes + 6 testkit;
   read-page flake rerun isolated → green) · ed2040e, cd05e19 · **Wave C closed**
+- 2026-10-26 — T2 done · CLI stdout line-buffering (partial line carried across data chunks,
+  flushed on close) · fail-first chunking test red 6/8 → green 8/8 (mid-JSON, mid-UTF-8, 4-chunk
+  line, 7-byte chunks, CRLF, no final newline); gates green (166 protocol + 237 bridge + 290 ext +
+  13 tests incl. 2 gated skip + 5 spikes + 6 testkit; read-page flake + one engine-cli.route
+  5 s timeout under full parallel load, both rerun green) · fcc8e23
