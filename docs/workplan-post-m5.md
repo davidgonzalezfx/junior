@@ -63,7 +63,17 @@
     `packages/protocol/src/untrusted.ts`.
   - DoD: `grep` proof of zero callers for each deletion; gates green; test count unchanged
     (minus deleted dead tripwires).
-- [ ] **C2 — `@junior/testkit` + test dedup** *(R§6.3, ~1 session)*
+- [x] **C2 — `@junior/testkit` + test dedup** *(R§6.3, ~1 session)* **DONE 2026-10-26
+  (commits 2a2bc3e, 400ffbf, eb5dc0b, fd19b62):** new `packages/testkit` with subpaths
+  `./jsdom` (stacked-rect and fixed-origin layout factories kept separate, because they are
+  genuinely different layouts), `./wire` (Anthropic + UI-stream SSE), `./cli-stream`, `./chat`
+  (UIMessage factories) and `./openai-mock`. Byte-equality pins hold each builder to the
+  pre-dedup literals. Over-budget notes retired by extraction + describe-block splits (the
+  shared harness was the only reason the files stayed whole): chat-panel 689→299+252,
+  engine-cli 630→250+106+182, routes 578→245+118+81, read-page 427→393. Package-local
+  harnesses live in `*.test-support.ts` (bridge build excludes them). The spike OpenAI mock
+  stays put with a pointer, since it records headers and has a mutable mode. Assertions
+  verbatim (407 expect statements, identical multiset); test counts unchanged + 6 testkit pins.
   - New workspace package `packages/testkit`: jsdom layout stub (dedupe 3 copies:
     `tests/e2e/fake-tab.ts:141-166`, `read-page.test.ts:50-58`, `in-page.test.ts:46-65`),
     SSE wire builders (`agent-mode.test.ts:22-93`, `engine-cli.test.ts`, spikes), fake
@@ -236,3 +246,8 @@ U…                       (optional)
   select-before-typing, PortRouterOptions.onContentMessage — deleted not wired) + comment sweep
   across apps/ + packages/ · behavior-preserving; gates green, test count −2 (the deleted dead
   tripwires) · f0f2341, e9f8505
+- 2026-10-26 — C2 done · `@junior/testkit` (jsdom stubs, SSE/CLI wire builders, UIMessage
+  factories, OpenAI mock) + dedup of the named copies; over-budget notes on chat-panel/engine-cli/
+  routes/read-page retired · behavior-preserving, assertions verbatim; gates green (166 protocol +
+  229 bridge + 290 ext + 13 tests incl. 2 gated skip + 5 spikes + 6 testkit) · 2a2bc3e, 400ffbf,
+  eb5dc0b, fd19b62
