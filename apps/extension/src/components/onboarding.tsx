@@ -1,6 +1,6 @@
 // Onboarding (plan §5.3, first run): 1) install the bridge, 2) pair (automatic),
 // 3) pick a provider from /api/status. Skippable at every step — the status bar keeps
-// nudging afterwards. Provider selection seeds `junior_default_provider` for M2-4.
+// nudging afterwards. Provider selection seeds `junior_default_provider`.
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { BridgeStatus } from "@junior/protocol";
 import { Button } from "@/components/ui/button";
@@ -63,7 +63,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
 function BridgeStep({ onReady, onSkip }: { onReady: () => void; onSkip: () => void }) {
   const [checking, setChecking] = useState(false);
   const [down, setDown] = useState(false);
-  // Auto-check on mount (M5-2 polish): if the bridge is already up, step 1 is silent.
+  // Auto-check on mount: if the bridge is already up, step 1 is silent.
   const autoChecked = useRef(false);
 
   const check = useCallback(async () => {
@@ -158,7 +158,7 @@ function PairStep({ onPaired, onSkip }: { onPaired: () => void; onSkip: () => vo
   );
 }
 
-// --- step 3: provider pick (read-only seed for the M2-4 picker) ----------------
+// --- step 3: provider pick (read-only seed for the ⌘K picker) ----------------
 
 function ProviderStep({ onDone, onSkip }: { onDone: () => void; onSkip: () => void }) {
   const [status, setStatus] = useState<BridgeStatus | null>(null);

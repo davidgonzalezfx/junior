@@ -1,5 +1,5 @@
-// Work overlay content script (plan §5.2 item 6, M3-4) — unlisted script
-// injected on demand via executeScript({files:["overlay.js"]}). M2-1 keeps the
+// Work overlay content script (plan §5.2 item 6) — unlisted script
+// injected on demand via executeScript({files:["overlay.js"]}). This keeps the
 // manifest free of static content_scripts and registration:"runtime" would add
 // matches to host_permissions, so this is the trimmed port of Autono
 // content/content.js as an on-demand injection instead of the plan-tree's

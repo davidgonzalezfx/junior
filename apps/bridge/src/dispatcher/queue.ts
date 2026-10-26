@@ -73,7 +73,7 @@ export class AsyncQueue<T> {
 }
 
 /** Guard seam (§4.3: guard.check may deny outright or demand an approval first).
- * M1-4 lands the real guard; the dispatcher only depends on this interface. */
+ * The dispatcher only depends on this interface. */
 export type GuardVerdict =
   | { kind: "allow" }
   | { kind: "deny"; reason: string }
@@ -81,7 +81,7 @@ export type GuardVerdict =
 
 export interface ActionGuard {
   check(action: BrowserAction): GuardVerdict | Promise<GuardVerdict>;
-  /** Called with the user's decision so "site" grants persist per session (M1-4). */
+  /** Called with the user's decision so "site" grants persist per session. */
   onApprovalDecision?(action: BrowserAction, decision: ApprovalDecision): void;
 }
 
@@ -204,7 +204,7 @@ export class Dispatcher {
     return this.queue.size;
   }
 
-  /** M4-5 crash/shutdown/cancel path — deny everything in flight, drop everything
+  /** Crash/shutdown/cancel path — deny everything in flight, drop everything
    * queued. Returns what was killed so POST /api/agent/cancel can report it. */
   dispose(reason: string): { actions: number; approvals: number } {
     const actions = this.futures.size;

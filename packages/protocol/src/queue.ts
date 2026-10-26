@@ -1,7 +1,7 @@
 // @junior/protocol/queue.ts — dispatcher queue envelope + action result (plan §3).
 // One channel carries both actions and approval requests; `kind` discriminates so a
-// consumer can never see an item missing its payload (M1-2 review: the earlier
-// all-optional shape parsed {kind:"action"} with no action at all).
+// consumer can never see an item missing its payload (the earlier all-optional
+// shape parsed {kind:"action"} with no action at all).
 import { z } from "zod";
 import { BrowserActionSchema } from "./actions.js";
 import { ApprovalRequestSchema } from "./approval.js";

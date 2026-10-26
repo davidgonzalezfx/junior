@@ -1,4 +1,4 @@
-// M5-7 host-access gate (decisions.md 2026-10-25): agent-mode page actions
+// Host-access gate (decisions.md 2026-10-25): agent-mode page actions
 // (read_page/click/type + overlay injection) run through chrome.scripting.executeScript,
 // which needs origin access to the tab's site — navigation works without it, so the
 // breakage only surfaced on real sites ("Extension manifest must request permission to

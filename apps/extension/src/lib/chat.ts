@@ -1,12 +1,12 @@
 // Chat wiring for the side panel (plan §5.3): useChat → DefaultChatTransport →
 // bridge POST /api/chat with the Bearer token and the api-engine body fields.
-// M2-3 ships a minimal provider/model choice (stored default + fallbacks); M2-4's
-// ⌘K picker replaces the target-resolution UI, not these pure helpers.
+// A minimal provider/model choice (stored default + fallbacks); the ⌘K picker
+// replaces the target-resolution UI, not these pure helpers.
 import { DefaultChatTransport, type UIMessage } from "ai";
 import type { BridgeStatus, ChatMessageMetadata, ProviderStatus } from "@junior/protocol";
 import type { DefaultProvider } from "./settings";
 
-/** Assistant messages carry the engines' usage metadata (M5-1 usage chips, plan §5.3). */
+/** Assistant messages carry the engines' usage metadata (usage chips, plan §5.3). */
 export type JuniorUIMessage = UIMessage<ChatMessageMetadata>;
 
 export interface ChatTarget {
@@ -15,7 +15,7 @@ export interface ChatTarget {
 }
 
 /** Well-known stand-ins when the anthropic catalog is empty; openai-compatible
- * providers get a real catalog once Settings "Test" persists it (M5-6). */
+ * providers get a real catalog once Settings "Test" persists it. */
 export const ANTHROPIC_FALLBACK_MODELS = [
   "claude-sonnet-5-5",
   "claude-haiku-5-5",
@@ -60,7 +60,7 @@ export function resolveChatTarget(
 
 /** Transport per (bridgeUrl, token, target, agentMode) — useChat re-creates its
  * connection when the memo key changes, so switching model or agent mode
- * mid-conversation just retargets the next send (M4-3). */
+ * mid-conversation just retargets the next send. */
 export function createChatTransport(
   bridgeUrl: string,
   token: string,
@@ -70,7 +70,7 @@ export function createChatTransport(
   return new DefaultChatTransport({
     api: `${bridgeUrl}/api/chat`,
     headers: { Authorization: `Bearer ${token}` },
-    // Merged into DefaultChatTransport's body alongside `messages` (verified M0-4).
+    // Merged into DefaultChatTransport's body alongside `messages`.
     // agentMode omitted when false — the protocol default covers it.
     body: {
       engine: "api",

@@ -1,4 +1,4 @@
-// lib/agent-loop.ts — the SW agent client (plan §5.2 item 2, M3-3): a single
+// lib/agent-loop.ts — the SW agent client (plan §5.2 item 2): a single
 // long-poll loop over GET /api/agent/next-action while the bridge is configured,
 // routing queue items to the executors and approval cards. Backoff 1 s → 30 s
 // with jitter on failures (nextDelayMs); every poll doubles as the bridge's
@@ -10,7 +10,7 @@ import { nextDelayMs } from "./bridge-client";
 import type { ApprovalAnswer, ApprovalAsk } from "./panel-approvals";
 import type { ExecuteOutcome } from "./executors";
 
-/** Long-poll window (bridge clamps 1–20 s; M1-2 default 15 s). */
+/** Long-poll window (bridge clamps 1–20 s; default 15 s). */
 export const POLL_TIMEOUT_MS = 15_000;
 
 export interface AgentLoopDeps {
@@ -25,7 +25,7 @@ export interface AgentLoopDeps {
   /** §5.2 item 6 pause (work overlay Pause button): while paused the loop stops
    * polling and any item already fetched is denied; resume re-enables. */
   onPausedChange?(paused: boolean): void;
-  /** M4-5: a poll failed (bridge unreachable/restarting). The background uses
+  /** A poll failed (bridge unreachable/restarting). The background uses
    * this to clear the work overlay — a dead bridge never sends "idle" again,
    * and the overlay must not outlive the task that raised it. */
   onBridgeError?(error: unknown): void;

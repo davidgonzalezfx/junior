@@ -46,7 +46,7 @@ export function buildProviders(config: JuniorConfig, cli: ClaudeCliStatus): Prov
       label: "Claude Code (CLI)",
       available: cli.found && cli.loggedIn,
       detail: cliDetail(cli),
-      models: [], // the CLI engine owns its model map (M4-4)
+      models: [], // the CLI engine owns its model map
     },
     {
       id: "anthropic",
@@ -54,7 +54,7 @@ export function buildProviders(config: JuniorConfig, cli: ClaudeCliStatus): Prov
       label: "Anthropic",
       available: Boolean(config.providers.anthropicKey),
       detail: config.providers.anthropicKey ? "API key configured" : undefined,
-      models: [], // model-catalog fetch lands with the M2-4 picker
+      models: [], // model-catalog fetch lands with the Settings→Providers picker
     },
   ];
   for (const p of config.providers.openaiCompatible) {

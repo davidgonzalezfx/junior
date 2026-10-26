@@ -1,4 +1,4 @@
-// lib/panel-approvals.ts — SW-side approval broker (M3-3): raises approval cards
+// lib/panel-approvals.ts — SW-side approval broker: raises approval cards
 // over the PortRouter and awaits the panel's answer with the §4.3 default-deny
 // window (120 s). One broker, many concurrent cards (the panel holds a Map keyed
 // by id — Autono does the same, background.js:10103). The window is authoritative
@@ -51,7 +51,7 @@ export class PanelApprovalBroker implements ApprovalAsk {
     return new Promise((resolve) => {
       // finish only ever runs after `timer` is assigned below (deferred
       // execution — same shape as the bridge dispatcher's withTimeout).
-      // by includes "no-panel" (M5-9 denyAllNoPanel) — the wire shape already
+      // by includes "no-panel" (denyAllNoPanel) — the wire shape already
       // carried it; there's just never a panel connected to see it.
       const finish = (answer: ApprovalAnswer, by: "decision" | "timeout" | "no-panel") => {
         clearTimeout(timer);
@@ -77,14 +77,14 @@ export class PanelApprovalBroker implements ApprovalAsk {
     for (const [, entry] of this.pending) entry.finish("deny", "decision");
   }
 
-  /** M4-5 kill path (overlay ✕ / task cancel): resolve every pending card as
+  /** Kill path (overlay ✕ / task cancel): resolve every pending card as
    * "deny" AND close it panel-side with the same approval_resolved broadcast a
    * timeout produces (by: "timeout" — policy default-deny, not a user decision). */
   cancelAll(): void {
     for (const [, entry] of this.pending) entry.finish("deny", "timeout");
   }
 
-  /** M5-9: the last panel port disconnected — nobody is left who could ever
+  /** The last panel port disconnected — nobody is left who could ever
    * answer, so waiting out the window only leaves a timer for an MV3 suspension
    * to lose (the real-Chrome hang). Resolve every pending card "deny" now,
    * closing cards with by: "no-panel" (§4.3 no-panel deny, the bridge mirror). */

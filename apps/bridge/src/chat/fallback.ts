@@ -33,7 +33,7 @@ const LIFECYCLE_TYPES = new Set([
 interface Probe {
   stream: ReadableStream<UIMessageChunk>;
   verdict: Promise<"ok" | "error" | "empty">;
-  /** The error chunk's errorText when the verdict is "error" (M5-10: the 502
+  /** The error chunk's errorText when the verdict is "error" (the 502
    * aggregate names the real provider failure, not just "provider error"). Read
    * after the verdict settles. */
   errorText: string;
@@ -55,7 +55,7 @@ export function probeUiStream(source: ReadableStream<UIMessageChunk>): Probe {
 
   // The consumer loop must start BEFORE the replay stream is constructed — a
   // ReadableStream pull can fire at construction and would race the loop for the
-  // source (cost one red fallback test when reordered, M5-10).
+  // source (cost one red fallback test when reordered).
   void (async () => {
     for (;;) {
       const { value, done } = await reader.read();
@@ -128,7 +128,7 @@ export async function firstSuccessfulStream(
     probe.discard();
     failures.push(
       verdict === "error"
-        ? // M5-10: name the real failure — the raw errorText was previously dropped,
+        ? // Name the real failure — the raw errorText was previously dropped,
           // so the panel only ever saw "provider error before first token".
           `provider error before first token${probe.errorText ? ` — ${probe.errorText}` : ""}`
         : "provider returned no content",

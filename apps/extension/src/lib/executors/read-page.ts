@@ -1,4 +1,4 @@
-// lib/executors/read-page.ts — read_page support (plan §5.2 item 3, M3-2).
+// lib/executors/read-page.ts — read_page support (plan §5.2 item 3).
 //
 // Modes:
 // - "outline" | "interactive" → public/vendor/buildDomTree.js (vendored, see the
@@ -41,7 +41,7 @@ const TRUNCATION_NOTE = " ... [truncated at %d chars — raise maxChars or read 
 function capWithNote(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
   const note = TRUNCATION_NOTE.replace("%d", String(maxChars));
-  // safeSlice: never split a surrogate pair at the cut (M5-3) — a lone surrogate would
+  // safeSlice: never split a surrogate pair at the cut — a lone surrogate would
   // serialize to invalid UTF-8 downstream.
   return safeSlice(text, Math.max(0, maxChars - note.length)) + note;
 }

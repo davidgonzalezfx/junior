@@ -1,5 +1,5 @@
-// lib/site-grants.ts — extension-side "Allow for this site" persistence (M3-3).
-// The BRIDGE's SessionGuard keeps its own grantedSites in bridge memory (M1-4);
+// lib/site-grants.ts — extension-side "Allow for this site" persistence.
+// The BRIDGE's SessionGuard keeps its own grantedSites in bridge memory;
 // these grants serve the extension guard-mirror's ask verdicts only. Session-
 // scoped like the bridge's: stored in storage.local (fakeBrowser has no
 // storage.session to test against) and cleared on browser startup by the SW,

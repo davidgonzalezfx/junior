@@ -29,8 +29,7 @@ type OkUrl = Extract<UrlCheck, { ok: true }>;
 export type GuardAsk = (approval: ApprovalRequest) => Promise<"once" | "site" | "deny">;
 
 export interface SessionGuardOptions {
-  /** Live permission-mode supplier — config is reread per check (per-request config
-   * is the M1-1/M1-3 convention). Defaults to "ask". */
+  /** Live permission-mode supplier — config is reread per check). Defaults to "ask". */
   permissionMode?: () => unknown;
   /** Live blocked-origins supplier (§4.4: the bridge's own origin; the extension
    * origin can never pass validateAgentUrl's http(s) check, so it needs no entry). */

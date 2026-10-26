@@ -1,4 +1,4 @@
-// Settings → Providers (plan §5.3, M2-4): Anthropic key, OpenAI-compatible CRUD with
+// Settings → Providers (plan §5.3): Anthropic key, OpenAI-compatible CRUD with
 // "fetch models", default fallback chain. Keys live in ~/.junior/config.json via the
 // bridge (decisions.md 2026-10-23) — this UI holds a local draft and only PUTs a key
 // the user actually typed (absent = keep what the bridge has; the GET never returns one).

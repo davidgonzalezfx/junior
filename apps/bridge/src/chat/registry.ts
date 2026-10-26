@@ -1,7 +1,7 @@
 // @junior/bridge/chat/registry — provider id → AI SDK LanguageModel (plan §4.5 "Engine api").
 // Keys come from ~/.junior/config.json (per-request load, same policy as the token) and are
 // handed to the SDK constructors only — never logged, never echoed (§7-5). The fallback
-// chain is M2-4; resolveModel resolves exactly one provider today.
+// resolveModel resolves exactly one provider today.
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { LanguageModel } from "ai";
@@ -44,7 +44,7 @@ export function resolveModel(
 
 /** ANTHROPIC_BASE_URL passthrough (shared with POST /api/config/test): same env the CLI
  * and Claude Code honor, so gateway users get the bridge for free. The SDK's baseURL must
- * INCLUDE /v1 (M0-4 learning — default is https://api.anthropic.com/v1) while Claude
+ * INCLUDE /v1 (default is https://api.anthropic.com/v1) while Claude
  * Code's env var is a bare host, so append /v1 unless it's already there. */
 export function anthropicBaseURL(): string | undefined {
   const gateway = process.env.ANTHROPIC_BASE_URL;

@@ -37,7 +37,7 @@ export function agentRoutes(dispatcher: Dispatcher) {
     return c.json({ delivered: dispatcher.resolveApproval(parsed.data) });
   });
 
-  // M4-5 kill path (plan §8 accept d): the overlay ✕ / panel cancel lands here —
+  // Kill path (plan §8 accept d): the overlay ✕ / panel cancel lands here —
   // every in-flight future resolves denied and the queue empties, so no engine
   // (MCP client, agent loop, CLI turn) is left hanging on the 120 s timeout.
   routes.post("/cancel", (c) => {

@@ -2,8 +2,7 @@
 // `junior_sessions` (plan §5.3): sessions list, text search, rename, delete,
 // markdown export; debounced writes (500 ms) + write-on-hide; trimming beyond
 // 200 sessions with a dropped-list callback so the UI can offer an export
-// prompt. Autono duplicated history into localStorage AND chrome.storage —
-// Junior keeps exactly one store.
+// prompt.
 import { browser } from "wxt/browser";
 import type { UIMessage } from "ai";
 
@@ -186,7 +185,7 @@ export async function setActiveSessionId(id: string | null): Promise<void> {
   }
 }
 
-// --- oversized-output trimming (M5-2) -----------------------------------------
+// --- oversized-output trimming -------------------------------------------------
 // Tool outputs (screenshot base64 can approach 1 MB) are workable live but are
 // dead weight in storage — chrome.storage.local quota is 10 MB and history holds
 // every output forever. Persist-time compaction keeps transcripts readable
@@ -228,7 +227,7 @@ export function sanitizeSessionMessages(
   });
 }
 
-// --- interrupted-tool finalization (M5-10) -------------------------------------
+// --- interrupted-tool finalization ---------------------------------------------
 // A stream that died mid-tool (panel closed, Stop, bridge error) otherwise leaves
 // the tool part at "running…" forever — on screen AND in every restored transcript.
 // Persist-time finalization marks any non-terminal tool part as output-error; the
@@ -267,7 +266,7 @@ export function finalizeInterruptedToolParts<M extends UIMessage>(messages: M[])
   return anyChanged ? next : messages;
 }
 
-// --- quota-pressure trimming (M5-2) --------------------------------------------
+// --- quota-pressure trimming ---------------------------------------------------
 
 export const QUOTA_DROP_FRACTION = 0.2;
 
@@ -326,7 +325,7 @@ export class SessionStore {
       this.timer = null;
       void this.flush();
     }, this.options.delayMs ?? WRITE_DEBOUNCE_MS);
-    // Pending timers hang vitest workers at exit (M1-2 learning); the browser
+    // Pending timers hang vitest workers at exit; the browser
     // ignores unref.
     (this.timer as unknown as { unref?: () => void }).unref?.();
   }
@@ -351,7 +350,7 @@ export class SessionStore {
     const next = [...batch, ...(await loadSessions()).filter((s) => !stale.has(s.id))];
     next.sort((a, b) => b.updatedAt - a.updatedAt);
     const { kept, dropped } = trimSessions(next, this.options.maxSessions ?? MAX_SESSIONS);
-    // Finalize interrupted tools (M5-10) and trim tool payloads (M5-2) on the way
+    // Finalize interrupted tools and trim tool payloads on the way
     // in — a panel close mid-tool must persist "failed", not "running…" — then let
     // the quota fallback shed oldest sessions if the write still fails.
     const sanitized = kept.map((s) => ({

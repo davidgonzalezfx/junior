@@ -1,5 +1,5 @@
-// @junior/bridge/chat/messages-sanitize — M5-10: heal broken replayed history.
-// A panel closed mid-tool (the M5-9 scenario) can persist an assistant message whose
+// @junior/bridge/chat/messages-sanitize — heal broken replayed history.
+// A panel closed mid-tool can persist an assistant message whose
 // tool part never received its result. Every later send in that session replays the
 // broken history, and providers reject it outright ("Tool result is missing for tool
 // call …"). This is the single choke point applied before convertToModelMessages in

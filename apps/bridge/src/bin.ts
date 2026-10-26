@@ -23,7 +23,7 @@ function serveCommand(): void {
   } else {
     console.log(`pairing token stored at ${dir}/token (first 8 chars: ${token.slice(0, 8)}…)`);
   }
-  // Owned here so shutdown can deny in-flight futures (M4-5) — createApp accepts
+  // Owned here so shutdown can deny in-flight futures — createApp accepts
   // an injected dispatcher, and the guard seam mirrors createApp's own default.
   const dispatcher = new Dispatcher({ guard: defaultGuard(dir) });
   const app = createApp({ dir, dispatcher });

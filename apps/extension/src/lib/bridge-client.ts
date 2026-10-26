@@ -95,12 +95,12 @@ export async function postPairing(baseUrl: string, token: string): Promise<Pairi
   });
 }
 
-/** GET /api/status — bridge facts + providers (drives onboarding step 3; M2-4 picker). */
+/** GET /api/status — bridge facts + providers (drives onboarding step 3; the ⌘K picker). */
 export async function fetchStatus(baseUrl: string, token: string): Promise<BridgeStatus> {
   return bridgeFetch(baseUrl, "/api/status", (raw) => BridgeStatusSchema.parse(raw), { token });
 }
 
-// --- Settings → Providers (M2-4, plan §5.3) -----------------------------------
+// --- Settings → Providers (plan §5.3) -----------------------------------
 
 /** GET /api/config — masked providers view (keys never come back over the wire). */
 export async function fetchProvidersView(baseUrl: string, token: string): Promise<ProvidersView> {
@@ -136,11 +136,11 @@ export async function testProvider(
   });
 }
 
-// --- Agent loop (M3-3, plan §5.2 item 2) ---------------------------------------
+// --- Agent loop (plan §5.2 item 2) ---------------------------------------
 
 /** GET /api/agent/next-action — the SW long-poll. Idle answers come back as
- * `{item: null}`, which is NOT a QueueItem (zod discriminated unions reject it,
- * M1-2 learning) — distinguish the two shapes before parsing. */
+ * `{item: null}`, which is NOT a QueueItem (zod discriminated unions reject it) —
+ * distinguish the two shapes before parsing. */
 export async function fetchNextAction(
   baseUrl: string,
   token: string,
@@ -188,7 +188,7 @@ export async function postApprovalDecision(
   return wire.delivered === true;
 }
 
-/** POST /api/agent/cancel — M4-5 kill path: the bridge denies every in-flight
+/** POST /api/agent/cancel — kill path: the bridge denies every in-flight
  * future and empties the queue so no engine hangs on the 120 s timeout. */
 export async function postCancel(baseUrl: string, token: string): Promise<void> {
   await bridgeFetch(baseUrl, "/api/agent/cancel", (raw) => raw as { ok: boolean }, {

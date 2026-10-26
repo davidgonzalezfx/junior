@@ -1,6 +1,6 @@
 // Typed chrome.storage.local wrapper (plan §5.2 item 1). All keys follow the
 // `junior_*` convention. `chrome.storage.local` is a TRUSTED_CONTEXTS store since the
-// M2-1 SW calls setAccessLevel — content scripts can never read the token (§5.1).
+// The SW calls setAccessLevel — content scripts can never read the token (§5.1).
 import { browser } from "wxt/browser";
 import { ExtensionSettingsSchema, type ExtensionSettings } from "@junior/protocol";
 
@@ -46,7 +46,7 @@ export async function setOnboarded(onboarded: boolean): Promise<void> {
   await browser.storage.local.set({ [ONBOARDED_KEY]: onboarded });
 }
 
-// --- default provider (seed for M2-4 ⌘K picker + Settings→Providers) ---------
+// --- default provider (seed for the ⌘K picker + Settings→Providers) ---------
 
 export interface DefaultProvider {
   providerId: string;
@@ -112,7 +112,7 @@ export async function addRecentModel(entry: RecentModel): Promise<RecentModel[]>
   return next;
 }
 
-/** Overwrite the stored list (M5-2: ChatPanel persists pruned recents on load). */
+/** Overwrite the stored list (ChatPanel persists pruned recents on load). */
 export async function saveRecentModels(list: RecentModel[]): Promise<void> {
   await browser.storage.local.set({ [RECENT_MODELS_KEY]: list });
 }

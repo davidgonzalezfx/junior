@@ -1,8 +1,7 @@
 // @junior/bridge — Hono app on 127.0.0.1:8620 (plan §1, §4).
-// M1-1: health + pairing + auth/CORS. M1-2: dispatcher long-poll (/api/agent/*).
-// M1-3: /api/status. M2-3: /api/chat (engine api). M2-4: /api/config + /api/config/test
-// (Settings→Providers) + chat fallback chain. Guard (M1-4), the cli engine + MCP
-// server (M4) mount below the auth middleware as they land.
+// Health + pairing + auth/CORS; dispatcher long-poll (/api/agent/*); /api/status;
+// /api/chat (engine api); /api/config + /api/config/test (Settings→Providers) + chat
+// fallback chain. Guard, the cli engine + MCP server mount below the auth middleware.
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { PairingRequestSchema, PairingResultSchema, PairingStatusSchema } from "@junior/protocol";
@@ -57,11 +56,11 @@ export function createApp(deps: BridgeDeps = { dir: juniorDir() }) {
 
   app.use("*", corsAllowlist());
 
-  // M5-3: reject oversized request bodies before any handler parses them (plan §8 M5-3
+  // Reject oversized request bodies before any handler parses them (plan §8
   // "oversized payloads"). One global ceiling: /api/chat messages are the largest
-  // legitimate body (a 1k-message session with tool outputs — M5-4's perf pass), while
-  // screenshots ride OUT of the bridge in action-results, never in. 8 MiB is generous
-  // headroom above that; everything else is far smaller. decisions.md 2026-10-25.
+  // legitimate body (a 1k-message session with tool outputs), while screenshots ride
+  // OUT of the bridge in action-results, never in. 8 MiB is generous headroom above
+  // that; everything else is far smaller (decisions.md 2026-10-25).
   app.use(
     "*",
     bodyLimit({
@@ -122,10 +121,10 @@ export function createApp(deps: BridgeDeps = { dir: juniorDir() }) {
     bearerAuth(() => readToken(deps.dir), log),
   );
 
-  // M1-2: dispatcher long-poll + result/approval posts (fall under auth above).
+  // Dispatcher long-poll + result/approval posts (fall under auth above).
   app.route("/api/agent", agentRoutes(dispatcher));
 
-  // M4-1: MCP streamable HTTP (§4.6) — same bearer gate as /api/*, mounted explicitly
+  // MCP streamable HTTP (§4.6) — same bearer gate as /api/*, mounted explicitly
   // on /mcp (the /api/* pattern above doesn't cover it).
   app.use(
     "/mcp",
@@ -143,12 +142,12 @@ export function createApp(deps: BridgeDeps = { dir: juniorDir() }) {
     }),
   );
 
-  // M1-3: /api/status — bridge facts + provider availability + CLI detection.
+  // /api/status — bridge facts + provider availability + CLI detection.
   app.route("/api", statusRoutes({ dir: deps.dir, dispatcher, ...deps.status }));
 
-  // M2-3: /api/chat — engine "api" streaming (plan §4.5).
-  // M4-3: agentMode dispatches through the same dispatcher the extension polls.
-  // M4-4: engine "cli" spawns the claude CLI against this bridge's own /mcp.
+  // /api/chat — engine "api" streaming (plan §4.5).
+  // agentMode dispatches through the same dispatcher the extension polls.
+  // engine "cli" spawns the claude CLI against this bridge's own /mcp.
   app.route(
     "/api",
     chatRoutes({
@@ -160,7 +159,7 @@ export function createApp(deps: BridgeDeps = { dir: juniorDir() }) {
     }),
   );
 
-  // M2-4: Settings→Providers — masked GET, patch PUT, models test (plan §5.3).
+  // Settings→Providers — masked GET, patch PUT, models test (plan §5.3).
   app.route("/api", providersRoutes({ dir: deps.dir, log, test: deps.providers?.test }));
 
   app.notFound((c) => c.json({ error: "not found" }, 404));

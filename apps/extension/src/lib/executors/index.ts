@@ -2,7 +2,7 @@
 // BrowserAction in, an ActionResult-shaped outcome out. Probe-before-act for
 // click/type (real facts → guard mirror → act with an expect-check), restricted-
 // page refusal, and the screenshot/get_active_tab/navigate/scroll ops. The SW
-// agent loop (M3-3) attaches queue ids and POSTs these as action-results.
+// agent loop attaches queue ids and POSTs these as action-results.
 //
 // Everything chrome.* goes through ExecutorEnv so tests run the REAL in-page
 // function against jsdom with fakeBrowser tabs.
@@ -47,7 +47,7 @@ export interface ActiveTab {
   windowId?: number;
 }
 
-/** The user's answer to an "ask" verdict; once/site proceed (grant persistence is M3-3). */
+/** The user's answer to an "ask" verdict; once/site proceed (grants persist per session). */
 export type AskFn = (approval: ApprovalRequest) => Promise<"once" | "site" | "deny">;
 
 export interface ExecutorEnv {
@@ -158,7 +158,7 @@ export const defaultEnv: ExecutorEnv = {
 export interface ExecuteOptions {
   /** Approval path for "ask" verdicts. Default: deny (§6.3-3 — closed panel included). */
   ask?: AskFn;
-  /** M3-3 session site grants: when the page's registrable domain was granted,
+  /** Session site grants: when the page's registrable domain was granted,
    * ask verdicts collapse to allow (guard-mirror still denies secrets/private nets). */
   granted?: (pageUrl: string) => Promise<boolean>;
 }
@@ -248,7 +248,7 @@ export async function executeAction(
       };
     }
     // The bridge's SessionGuard fully enforced this navigate before the action was
-    // queued (M1-4); the validate above is the extension-side defense-in-depth mirror.
+    // queued; the validate above is the extension-side defense-in-depth mirror.
     await env.navigateTab(tab.id, check.url);
     return { status: "ok", result: `Navigated to ${check.url}` };
   }

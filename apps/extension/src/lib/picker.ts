@@ -65,7 +65,7 @@ export function pruneRecentModels(recent: RecentModel[], status: BridgeStatus): 
 
 /** Groups for the palette: Recent (if any), then one group per provider from
  * /api/status that has models to offer. Unavailable providers and claude-cli (no
- * catalog until the M4-4 engine) are omitted — they can't serve a chat today. */
+ * catalog until the CLI engine) are omitted — they can't serve a chat today. */
 export function buildPickerGroups(status: BridgeStatus, recent: RecentModel[]): PickerGroup[] {
   const groups: PickerGroup[] = [];
   const available = status.providers.filter((p) => p.available);

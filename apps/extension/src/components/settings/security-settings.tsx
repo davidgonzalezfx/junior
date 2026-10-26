@@ -1,4 +1,4 @@
-// Settings → Agent & Security (plan §5.3, M3-3 "guard display"): the permission
+// Settings → Agent & Security (plan §5.3): the permission
 // mode radio plus the matrix rendered as a table. The table's cells are computed
 // by CALLING the pure permissionDecision from @junior/protocol per (mode, code) —
 // the display can never drift from the enforcement tables (§5.2 item 4).

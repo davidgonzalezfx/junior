@@ -1,11 +1,11 @@
-// @junior/bridge/providers — Settings→Providers backend (plan §5.3, M2-4).
+// @junior/bridge/providers — Settings→Providers backend (plan §5.3).
 // GET/PUT /api/config + POST /api/config/test. Keys live ONLY in ~/.junior/config.json
 // (docs/decisions.md 2026-10-23 — plan §5.3 said chrome.storage.local; the chat registry
 // reads config, so the bridge is the single source of truth). GET returns a MASKED view
 // (ProvidersViewSchema is strict — a raw apiKey on the wire fails the parse); PUT takes
 // a patch where absent keys mean "keep what the bridge has", so the UI only ever sends
 // a key the user actually typed. A successful POST /api/config/test also persists the
-// fetched catalog onto the entry (M5-6) so /api/status → ⌘K picker serves real models.
+// fetched catalog onto the entry so /api/status → ⌘K picker serves real models.
 import { Hono } from "hono";
 import {
   ProvidersPatchSchema,
@@ -42,7 +42,7 @@ export function toProvidersView(config: JuniorConfig): ProvidersView {
 }
 
 /** Pure patch application. Semantics: absent apiKey = keep existing (matched by id,
- * new ids start keyless); "" clears. Same for `models` (M5-6): absent = keep the
+ * new ids start keyless); "" clears. Same for `models`: absent = keep the
  * persisted catalog, an explicit array replaces it — the UI never re-sends a catalog
  * it hasn't re-fetched, and a stale draft must not wipe one. The merged config is
  * re-validated by JuniorConfigSchema so a bad patch can never hit disk. */
@@ -68,7 +68,7 @@ export function applyProvidersPatch(
   });
 }
 
-/** Persist a fetched model catalog onto the provider entry (M5-6): the Settings "test"
+/** Persist a fetched model catalog onto the provider entry: the Settings "test"
  * button is the only thing that ever fetches {baseUrl}/models, so its result is stored
  * on the openai-compatible entry — GET /api/config serves it (masked view already
  * carries `models`) and /api/status → buildProviders feeds the ⌘K picker. Anthropic /
@@ -197,7 +197,7 @@ export function providersRoutes(deps: ProvidersDeps) {
     if (!body.success) return c.json({ error: "body must be {providerId: string}" }, 400);
     const config = loadConfig(deps.dir);
     const result = await testProvider(config, body.data.providerId, deps.test);
-    // A successful fetch IS the catalog — persist it (M5-6) so /api/status serves
+    // A successful fetch IS the catalog — persist it so /api/status serves
     // models to the picker without a config round-trip through the UI.
     if (result.ok) {
       const merged = withPersistedModels(config, body.data.providerId, result.models);

@@ -4,7 +4,7 @@
 // core/config.py:49–71 find_claude_binary (PATH scan + WinGet/npm candidates).
 // Detection only reads local state and never sends or logs tokens: `claude auth
 // status` prints auth *metadata* (loggedIn, authMethod, email/org) — no credentials —
-// and this module surfaces only that (verified against Claude Code 2.1.309, M1-3).
+// and this module surfaces only that (verified against Claude Code 2.1.309).
 import { spawn } from "node:child_process";
 import { accessSync, constants, existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
@@ -22,7 +22,7 @@ export interface ClaudeCliStatus {
   authMethod: string | null;
 }
 
-/** Claude Code session vars (M0-3 learning) — a spawn nested in this process must not
+/** Claude Code session vars — a spawn nested in this process must not
  * inherit the parent session's wiring, or the child behaves as a Claude Code subagent. */
 const SPAWN_ENV_STRIP = [
   "CLAUDECODE",

@@ -1,4 +1,4 @@
-// lib/task-status.ts — M5-9: the SW's last known task_status. The broadcasts are
+// lib/task-status.ts — the SW's last known task_status. The broadcasts are
 // fire-and-forget, so a panel that opens (or reopens) mid-task missed every one
 // of them and had to guess "idle" — the onConnect handler sends snapshot()
 // right after init_state so the chip shows the task's true state.

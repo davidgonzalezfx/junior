@@ -3,7 +3,7 @@
 // click/type page facts only exist here, so this module maps them onto the SAME
 // pure tables from @junior/protocol — never a re-implementation. Verdicts:
 // deny → refusal string goes back to the model; ask → an ApprovalRequest for the
-// card flow (M3-3 Port routing; until then the runner default-asks-deny, §6.3-3).
+// card flow; an unrouted ask() default-denies (§6.3-3).
 import {
   ApprovalRequestSchema,
   BLOCKED_SENSITIVE_TEXT,
@@ -29,7 +29,7 @@ export interface ClickCheckInput {
   mode: unknown;
   pageUrl: string;
   facts: InPageClickFacts;
-  /** The user already allowed this site (M3-3 session grants): suppresses the ask,
+  /** The user already allowed this site (session grants): suppresses the ask,
    * never a deny. private_network asks stay — a site grant can't waive the network. */
   granted?: boolean;
 }
@@ -166,7 +166,7 @@ export function checkTypeFacts(input: TypeCheckInput): PreActCheck {
 }
 
 // Site-grant state ("allow for this site") arrives via the `granted` input on the
-// two check functions above — callers (the M3-3 agent loop) read lib/site-grants.ts
+// two check functions above — callers (the agent loop) read lib/site-grants.ts
 // and pass `grantCovers(...)`; this module holds no storage or module state.
 
 function siteDomainOf(url: string): string | undefined {

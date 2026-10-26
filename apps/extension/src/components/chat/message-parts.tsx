@@ -1,4 +1,4 @@
-// Chat message part renderers (M5-1, plan §5.3): collapsible tool-call cards (tool,
+// Chat message part renderers (plan §5.3): collapsible tool-call cards (tool,
 // args, result, duration), collapsible reasoning blocks, usage chips, and the empty
 // state. Split from chat-panel.tsx so the panel keeps the wiring and these stay
 // presentational. Collapsibles are native <details> — works in jsdom, no Radix.

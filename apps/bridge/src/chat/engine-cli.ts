@@ -7,7 +7,7 @@
 // tool parts, finish. Parse gaps warn and skip; CLI stderr and a nonzero exit surface
 // as an error chunk — never swallowed (ModelBridge hid failures in thought blocks).
 // Session continuity: the bridge prescribes the UUID — `--session-id <uuid>` on a
-// conversation's first turn, `--resume <uuid>` after (round trip verified M0-3);
+// conversation's first turn, `--resume <uuid>` after (round trip verified);
 // the `init` event's session_id is parsed for logs/debug only.
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -42,11 +42,11 @@ export function cliResultToMetadata(result: CliResult, model: string): ChatMessa
   return metadata;
 }
 
-export const MCP_SERVER_NAME = "junior_browser"; // CLAUDE.md naming convention (verified M4-2)
+export const MCP_SERVER_NAME = "junior_browser"; // CLAUDE.md naming convention
 
 /** ~/.junior/mcp.json content — one HTTP server: this bridge's /mcp with the bearer
  * token in its headers (the exact shape `claude mcp add --transport http … --header`
- * writes, M4-2). --strict-mcp-config makes this file the CLI's ENTIRE server list. */
+ * writes). --strict-mcp-config makes this file the CLI's ENTIRE server list. */
 export function buildMcpServers(loopbackUrl: string, token: string) {
   return {
     mcpServers: {
@@ -74,7 +74,7 @@ export function writeMcpConfig(dir: string, loopbackUrl: string, token: string):
 }
 
 /** convId → CLI session UUID. The bridge prescribes the UUID so there is no
- * init-capture race (plan §4.5; M0-3 verified `--session-id` then `--resume`). */
+ * init-capture race (plan §4.5; verified `--session-id` then `--resume`). */
 export class CliSessionMap {
   private readonly sessions = new Map<string, string>();
 
@@ -105,20 +105,20 @@ export function buildCliArgs(o: CliArgsOptions): string[] {
     "-",
     "--output-format",
     "stream-json",
-    "--verbose", // REQUIRED with stream-json in -p mode (M0-3 learning)
+    "--verbose", // REQUIRED with stream-json in -p mode
     "--include-partial-messages",
-    "--strict-mcp-config", // never inherit the cwd project's MCP servers (M0-3)
+    "--strict-mcp-config", // never inherit the cwd project's MCP servers
     "--mcp-config",
     o.mcpConfigPath,
   ];
   const native = o.cliTools === "all" && o.nativeToolsAllowed;
   if (!native) args.push("--tools", ""); // zero built-ins: tool surface = exactly our MCP tools
   // Server-wide pre-approval — the `mcp__server:*` wildcard is NOT honored in 2.1.310
-  // (M4-2). Human approval still happens in the extension card via the bridge guard;
+  // Human approval still happens in the extension card via the bridge guard;
   // with native tools exposed, the CLI's own permission system denies them
   // non-interactively and the denial surfaces through tool_result/permission_denials.
   args.push("--allowedTools", `mcp__${MCP_SERVER_NAME}`);
-  // ALWAYS explicit — spawned children otherwise inherit settings.json's model (M0-3).
+  // ALWAYS explicit — spawned children otherwise inherit settings.json's model.
   args.push("--model", o.model);
   // (--effort has no wire field in ChatRequestBodySchema yet — add before spawning if
   // it ever lands; the CLI only warns+ignores bad values, so the bridge must validate.)
@@ -161,7 +161,7 @@ export interface CliTurnOptions {
   prompt: string;
   env?: NodeJS.ProcessEnv;
   cwd?: string;
-  /** M4-5: abort (panel Stop / client disconnect) kills the spawned CLI. */
+  /** Abort (panel Stop / client disconnect) kills the spawned CLI. */
   signal?: AbortSignal;
   /** Test seam — defaults to node:child_process spawn. */
   spawnImpl?: SpawnFn;
@@ -198,13 +198,13 @@ export async function runCliTurn(
   const doSpawn = o.spawnImpl ?? spawn;
   let exe = o.exe;
   let args = o.args;
-  // Node ≥ 18.20 spawns of .cmd/.bat hard-fail EINVAL without a shell (M1-3 learning).
+  // Node ≥ 18.20 spawns of .cmd/.bat hard-fail EINVAL without a shell.
   if (process.platform === "win32" && /\.(cmd|bat)$/i.test(exe)) {
     args = ["/d", "/s", "/c", exe, ...args];
     exe = "cmd.exe";
   }
   const child = doSpawn(exe, args, {
-    env: sanitizeEnv(o.env ?? process.env), // strip the parent session's CLAUDE_* wiring (M0-3)
+    env: sanitizeEnv(o.env ?? process.env), // strip the parent session's CLAUDE_* wiring
     cwd: o.cwd,
     windowsHide: true,
     stdio: ["pipe", "pipe", "pipe"],
@@ -244,7 +244,7 @@ export async function runCliTurn(
   child.stdin?.end();
 
   // Client aborted (or aborted before the spawn even ran): kill the child so a
-  // cancelled turn can't keep driving tools headless (M4-5). "close" then fires
+  // cancelled turn can't keep driving tools headless. "close" then fires
   // with the signal and the normal result handling reports it.
   if (o.signal !== undefined) {
     const kill = () => child.kill("SIGTERM");

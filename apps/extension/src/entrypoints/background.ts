@@ -1,4 +1,4 @@
-// Service worker (plan §5.2): M2-2 pairing + M3-3 agent loop, Port router and
+// Service worker (plan §5.2): pairing, agent loop, Port router and
 // approval cards. The SW is the composition root — every capability lives in a
 // tested lib module; this file only wires chrome events to them.
 import { executeAction, defaultEnv } from "@/lib/executors";
@@ -31,7 +31,7 @@ export default defineBackground(() => {
 
   /** §5.2 item 1: token + settings mirror + best-effort pairing. Idempotent, safe to rerun. */
   const pairIfNeeded = async (why: string) => {
-    await runStorageMigrations().catch(() => null); // M5-2: SW wake also migrates storage
+    await runStorageMigrations().catch(() => null); // SW wake also migrates storage
     await ensureToken();
     await saveSettings({}); // materialize §4.1 defaults (bridgeUrl, permissionMode, …)
     const outcome = await pairWithBridge();
@@ -55,12 +55,12 @@ export default defineBackground(() => {
   });
 
   // --- Port router + approval broker (§5.2 item 5) -----------------------------
-  const taskStatus = new TaskStatusTracker(); // M5-9: last state for (re)connecting panels
+  const taskStatus = new TaskStatusTracker(); // last state for (re)connecting panels
   const router = new PortRouter({
     extensionId: browser.runtime.id,
     extensionOrigin: location.origin,
     onApprovalResponse: (msg) => broker.handleResponse(msg),
-    // M5-9: the panel is the only approver — once its port is gone nobody can
+    // The panel is the only approver — once its port is gone nobody can
     // ever answer, so deny every pending card NOW (§4.3 no-panel ⇒ deny). This
     // is the fix for the real-Chrome hang: a closed panel used to leave the
     // card on a SW setTimeout that an MV3 suspension silently dropped, parking
@@ -139,7 +139,7 @@ export default defineBackground(() => {
       router.broadcast(taskStatus.update(paused ? "paused" : "idle"));
       void overlay.setPaused(paused).catch(() => null);
     },
-    // M4-5: a dead bridge never sends "idle" again — clear the overlay so it
+    // A dead bridge never sends "idle" again — clear the overlay so it
     // can't outlive the task; the panel's red status dot tells the rest.
     onBridgeError: () => {
       void overlay.hide().catch(() => null);
@@ -147,12 +147,12 @@ export default defineBackground(() => {
   });
   loop.start();
 
-  // M4-5 crash recovery: hide any overlay an earlier (killed) SW left showing.
+  // Crash recovery: hide any overlay an earlier (killed) SW left showing.
   // Deferred past the declarations above; every wake finds either nothing or a
   // stale record — a fresh SW has no active task, so hiding is always safe.
   void overlay.recoverAfterRestart().catch(() => null);
 
-  /** M4-5 kill path (overlay ✕ / stuck agent): deny everything in flight
+  /** Kill path (overlay ✕ / stuck agent): deny everything in flight
    * bridge-side, close pending cards, drop the overlay. Fire-and-forget safe. */
   const cancelTask = async (): Promise<void> => {
     if (loop.isPaused) loop.setPaused(false); // a cancelled task resumes unpaused

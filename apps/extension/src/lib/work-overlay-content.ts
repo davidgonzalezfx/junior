@@ -1,8 +1,8 @@
 // lib/work-overlay-content.ts — the in-page work overlay (plan §5.2 item 6):
 // a trimmed port of Autono content/content.js:17–276 (§6.1 copy list) — thin
 // 2px border + "Junior is working" pill with Pause/Resume, Autono's glows and
-// branding stripped, no Write button (instructions live in the panel). M4-5
-// adds the ✕ back (Autono content.js:200–226): it hides the overlay at once
+// branding stripped, no Write button (instructions live in the panel). The ✕
+// (Autono content.js:200–226) hides the overlay at once
 // and sends cancel_task — the SW denies every in-flight bridge future via
 // POST /api/agent/cancel, so a stuck agent can always be stopped from the page.
 // Kept from Autono, per plan §5.2: the e.isTrusted interception (physical user
@@ -11,7 +11,7 @@
 // the banner controls).
 //
 // The overlay is injected on demand as the unlisted script `overlay.js`
-// (executeScript — M2-1 keeps the manifest free of static content_scripts), so
+// (executeScript keeps the manifest free of static content_scripts), so
 // createWorkOverlay is dependency-free DOM code that runs in jsdom tests, and
 // installWorkOverlay (entrypoints/overlay.ts) is the only chrome wiring.
 

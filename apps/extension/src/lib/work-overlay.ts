@@ -4,7 +4,7 @@
 // top frame, 3-type allowlist) to every inbound content-script message before
 // acting on it. Pause itself is LOCAL (plan §5.2 item 6): the controller only
 // syncs visuals; AgentLoop.setPaused stops polling and denies held items.
-// M4-5: the ✕ "cancel" action routes to the background's cancelTask, and the
+// The ✕ "cancel" action routes to the background's cancelTask, and the
 // showing tab is recorded in storage so a SW killed mid-task can clear the
 // orphaned overlay on its next wake (the page-side overlay outlives the SW).
 import { browser } from "wxt/browser";
@@ -85,7 +85,7 @@ export class WorkOverlayController {
     }
   }
 
-  /** M4-5: a SW killed mid-task leaves the page-side overlay orphaned (it
+  /** A SW killed mid-task leaves the page-side overlay orphaned (it
    * outlives the SW until the page navigates). On every SW wake, hide whatever
    * the dead SW last showed — a fresh SW has no active task, so this is always
    * safe, and a task started later re-shows via show(). */

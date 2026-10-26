@@ -3,8 +3,8 @@
 // 5214–5222, 5592–5610), trimmed to Junior's message set:
 //  - privileged types (extension pages only): approval_response (+ future picker cmds)
 //  - content-script sendable allowlist: pick_response | overlay_action | content_ready
-//    (content scripts connect in M3-4; the allowlist exists from day one so the
-//    firewall is already shaped — plan §5.2 item 5 names exactly these three).
+//    (enforced in work-overlay.ts over runtime.onMessage — plan §5.2 item 5 names
+//    exactly these three).
 // Everything chrome-port-shaped goes through PortLike so tests run the REAL
 // router against stub ports.
 import type { ApprovalRequest } from "@junior/protocol";
@@ -57,7 +57,7 @@ export type PanelOutboundMessage =
 
 export type PanelInboundMessage = ApprovalResponseMessage;
 
-/** M3-4 content scripts may send exactly these (plan §5.2 item 5 allowlist). */
+/** Content scripts may send exactly these (plan §5.2 item 5 allowlist). */
 export const CONTENT_SCRIPT_TYPES = ["pick_response", "overlay_action", "content_ready"] as const;
 
 // --- firewall (pure, ports of Autono background.js:113 + 5593–5603) -------------

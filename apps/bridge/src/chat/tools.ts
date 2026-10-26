@@ -1,7 +1,7 @@
 // @junior/bridge/chat/tools — the api engine's browser tool set (plan §4.5 "Shared").
 // One tool per §4.5 browser action; every execute() funnels through
 // Dispatcher.dispatch, so the panel's agent mode traverses the SAME guard +
-// approval-card path as MCP clients (M4-1) and the AgentLoop — there is no second
+// approval-card path as MCP clients and the AgentLoop — there is no second
 // enforcement point to bypass. Denied/error guard strings (USER_DENIED:/
 // BLOCKED_BY_POLICY:/…) ride through verbatim so the model learns not to retry.
 import { tool, type Tool, type ToolSet } from "ai";

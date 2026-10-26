@@ -10,17 +10,13 @@
 // against jsdom.
 //
 // NOTE (file >400 lines, protocol definition-of-done): this file is one function by
-// contract — splitting it would break executeScript serialization. See
-// docs/decisions.md 2026-10-23 for the deltas vs Autono's duplicated per-op copies.
+// contract — splitting it would break executeScript serialization.
 //
-// Junior deltas vs Autono (deliberate):
-// - the DOM map is `window.__junior_dom_map` (M3-2 vendored buildDomTree), not
-//   Autono's `__antigravity_dom_map`;
-// - the visible mouse-cursor animation is not ported (not in plan §6.1 copy list);
-// - the A19 abort-sequence flag is not ported — §5.2 item 6 puts pause in the SW
-//   (it stops polling and denies items), not in the page;
+// Deliberate properties (not accidents of the port):
+// - pause lives in the SW (it stops polling and denies items), not in the page —
+//   there is no in-page abort flag;
 // - typing cadence is parameterized (`charDelayMs`) so tests run at 0 ms; prod
-//   keeps Autono's human-like rhythm (reacts better with React controlled inputs).
+//   keeps a human-like rhythm (reacts better with React controlled inputs).
 
 export interface InPageClickFacts {
   tag: string;
@@ -103,8 +99,8 @@ export async function juniorActionInPage(args: InPageRequest): Promise<InPageRes
   function findInteractiveElement(target: string, isInputOnly: boolean): Element | null {
     const rawTarget = String(target || "").trim();
     // Empty target is only meaningful for the input pool (strategy 8: focused field
-    // / single visible input). Junior delta vs Autono: attribute/text matches below
-    // require a non-empty target, so "" can't accidentally match an attribute-less field.
+    // / single visible input). Attribute/text matches below require a non-empty
+    // target, so "" can't accidentally match an attribute-less field.
     if (!rawTarget && !isInputOnly) return null;
     const lowerTarget = rawTarget.toLowerCase();
 
@@ -438,7 +434,7 @@ export async function juniorActionInPage(args: InPageRequest): Promise<InPageRes
       /* a listener may throw — the synthetic sequence already ran */
     }
 
-    // Page-derived fragment: ≤ 60 chars, no newlines, JSON-encoded (Autono A17).
+    // Page-derived fragment: ≤ 60 chars, no newlines, JSON-encoded.
     const label =
       textOf(el) ||
       (el as HTMLInputElement).value ||

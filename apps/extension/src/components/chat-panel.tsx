@@ -1,8 +1,8 @@
-// ChatPanel — M2-4: plain chat over /api/chat (engine `api`) with markdown streaming
-// and the ⌘K provider/model palette (plan §5.3). M2-5: session persistence — the
+// ChatPanel — plain chat over /api/chat (engine `api`) with markdown streaming
+// and the ⌘K provider/model palette (plan §5.3). Session persistence: the
 // active session (id + restored messages) comes from App, finished message lists
-// flow back through onRecord for the debounced history write. M4-3: an Agent toggle
-// (agentMode:true → bridge registers its browser tools). M5-1: tool-call cards,
+// flow back through onRecord for the debounced history write. An Agent toggle
+// (agentMode:true → bridge registers its browser tools). Tool-call cards,
 // reasoning collapse, usage chips, empty/error/loading states.
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
@@ -72,7 +72,7 @@ export function ChatPanel({ session, onRecord }: ChatPanelProps) {
         if (target === null)
           throw new Error("no provider configured — add a key in Settings → Providers");
         if (stale) return;
-        // M5-2: load the persisted recents (they used to only exist for the current
+        // Load the persisted recents (they used to only exist for the current
         // panel session) and prune entries the catalog no longer knows.
         const stored = await getRecentModels();
         const recent = pruneRecentModels(stored, status);
@@ -124,7 +124,7 @@ function Chat({
   const [recent, setRecent] = useState<RecentModel[]>(setup.recent);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [agentMode, setAgentMode] = useState(false);
-  // M5-7: set when the agent-mode permission gate is denied — the task still runs
+  // Set when the agent-mode permission gate is denied — the task still runs
   // (navigation needs no origin access) but every page action will fail.
   const [hostDenied, setHostDenied] = useState(false);
   const [draft, setDraft] = useState("");
@@ -153,7 +153,7 @@ function Chat({
     onRecord(messages);
   }, [messages, onRecord]);
 
-  // M5-10 finalize-on-death: a stream that stopped mid-tool (error, Stop, provider
+  // Finalize-on-death: a stream that stopped mid-tool (error, Stop, provider
   // failure) leaves the card at "running…" forever. Once not busy, any non-terminal
   // tool part is dead — mark it (and the changed messages re-record below). Also
   // heals a restored session persisted broken by an older build.
@@ -163,7 +163,7 @@ function Chat({
     if (next !== messages) setMessages(next);
   }, [busy, messages, setMessages]);
 
-  // Keep the newest message in view while streaming (history virtualization is M2-5).
+  // Keep the newest message in view while streaming.
   // Property assignment, not scrollTo() — jsdom elements have no scrollTo.
   useEffect(() => {
     const el = scrollRef.current;
@@ -181,8 +181,8 @@ function Chat({
     const text = draft.trim();
     if (text.length === 0 || busy) return;
     setDraft("");
-    // M5-7 (decisions.md 2026-10-25): agent page actions (read_page/click/type +
-    // overlay injection) need origin access to the tab's site — navigation works
+    // Agent page actions (read_page/click/type + overlay injection) need origin
+    // access to the tab's site (decisions.md 2026-10-25) — navigation works
     // without it, real sites don't. The composer send is a user gesture, the one
     // place Chrome allows the all-sites dialog; plain chat skips the gate entirely.
     // A denial still runs the task — the notice below says page actions will fail.
@@ -207,7 +207,7 @@ function Chat({
           {" / "}
           <span className="font-medium">{target.model}</span>
         </button>
-        {/* M4-3: agent mode sends agentMode:true — the bridge registers its browser
+        {/* Agent mode sends agentMode:true — the bridge registers its browser
          * tools and the model works toward the goal in the active tab. */}
         <button
           type="button"
@@ -216,7 +216,7 @@ function Chat({
           title="Agent mode — Junior may act in this tab (guarded by approval cards)"
           onClick={() => {
             setAgentMode((v) => !v);
-            setHostDenied(false); // M5-7: the notice only describes agent-mode sends
+            setHostDenied(false); // the notice only describes agent-mode sends
           }}
           className={
             agentMode
@@ -241,7 +241,7 @@ function Chat({
         {messages.length === 0 ? (
           <ChatEmptyState onPick={setDraft} />
         ) : (
-          // M5-4 perf: rows are memoized on message identity — a streaming delta
+          // Perf: rows are memoized on message identity — a streaming delta
           // replaces only the last message object, so the other 999 rows of a
           // 1k-message session skip their markdown re-parse (see chat-panel.perf).
           messages.map((message) => (
@@ -309,7 +309,7 @@ function Chat({
   );
 }
 
-/** One transcript row (M5-4 extraction): memoized on message identity — useChat
+/** One transcript row: memoized on message identity — useChat
  * replaces only the last message object per delta, so untouched rows never
  * re-render (their markdown would otherwise re-parse every streamed chunk). */
 const MessageRow = memo(function MessageRow({
@@ -331,7 +331,7 @@ const MessageRow = memo(function MessageRow({
         // Server-side tools arrive as tool parts (v7): streamText's static
         // tools render as `tool-<name>` part types (dynamic:false on the
         // wire), client-unknown ones as `dynamic-tool` with a toolName
-        // field. Both render as collapsible cards (M5-1).
+        // field. Both render as collapsible cards.
         if (isToolPart(part) && isToolPartView(part)) {
           const name =
             part.type === "dynamic-tool"

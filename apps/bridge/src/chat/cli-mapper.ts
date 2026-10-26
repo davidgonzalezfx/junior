@@ -36,7 +36,7 @@ export class CliStreamMapper {
   initSessionId: string | null = null;
   /** stream-json lines that didn't parse into a known event — the caller warns. */
   unknownLines = 0;
-  /** init-event mcp_servers with status "failed" — surfaced as a warning (M0-3:
+  /** init-event mcp_servers with status "failed" — surfaced as a warning (
    * an unreachable MCP server is non-fatal but shows here). */
   readonly failedMcpServers: string[] = [];
 

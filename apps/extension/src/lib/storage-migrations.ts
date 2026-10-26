@@ -1,4 +1,4 @@
-// Versioned chrome.storage.local migrations (plan §5.2 storage layer, §8 M5-2).
+// Versioned chrome.storage.local migrations (plan §5.2 storage layer).
 // One registered migration per storage-shape change, applied strictly in order at
 // panel boot (before sessions restore) and SW startup. A stored version NEWER than
 // the code (extension downgrade) leaves data untouched — never downgrade user data.
@@ -18,7 +18,7 @@ interface Migration {
 const MIGRATIONS: readonly Migration[] = [
   {
     toVersion: 1,
-    // M2-5..M5-1 stored full tool outputs; one screenshot ≈ up to 1 MB of base64
+    // Older builds stored full tool outputs; one screenshot ≈ up to 1 MB of base64
     // inside junior_sessions (quota 10 MB). Compact the payloads once, up front.
     description: "compact oversized tool outputs stored in junior_sessions",
     migrate(data) {

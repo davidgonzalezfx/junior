@@ -1,14 +1,14 @@
 // @junior/bridge/chat/routes — POST /api/chat (plan §4.5, §3 HTTP table).
-// M2-3 scope: engine "api", plain chat. M4-3: agentMode registers the §4.5 browser
-// tool set (chat/tools.ts) and runs streamText's multi-step loop bounded by
-// config.maxSteps — tool calls execute through the dispatcher (guard + approval
-// cards) and their results feed the next step. M4-4: engine "cli" spawns the claude
-// CLI (chat/engine-cli.ts) with --mcp-config looping back at this bridge's /mcp —
-// the CLI's tool calls traverse the same dispatcher + guard + cards.
-// Response is an AI SDK v7 UI message stream (SSE) either way — the extension's
-// useChat consumes it unchanged.
-// M2-4: provider fallback chain from config — a provider 4xx/5xx BEFORE the first token
-// retries the next candidate (chat/fallback.ts); after the first token the error surfaces.
+// Two engines: "api" runs streamText — plain chat, or agentMode with the §4.5
+// browser tool set (chat/tools.ts) looping through the dispatcher (guard +
+// approval cards); "cli" spawns the claude CLI (chat/engine-cli.ts) with
+// --mcp-config looping back at this bridge's /mcp — the CLI's tool calls
+// traverse the same dispatcher + guard + cards. The response is an AI SDK v7
+// UI message stream (SSE) either way — the extension's useChat consumes it
+// unchanged.
+// Provider fallback chain from config — a provider 4xx/5xx BEFORE the first token
+// retries the next candidate (chat/fallback.ts); after the first token the error
+// surfaces.
 import { Hono } from "hono";
 import {
   convertToModelMessages,
@@ -56,7 +56,7 @@ export interface ChatDeps {
   log?: Logger;
   /** Test seam — handed to resolveModel so tests hit in-process mock wires. */
   fetch?: typeof fetch;
-  /** CLI engine (M4-4) seams — loopback URL override (harness binds port 0) and a
+  /** CLI engine seams — loopback URL override (harness binds port 0) and a
    * spawnImpl for tests that must not spawn a real `claude`. */
   cli?: { loopbackUrl?: string; spawnImpl?: SpawnFn };
 }
@@ -103,13 +103,13 @@ export function chatRoutes(deps: ChatDeps) {
           const outcome = await runCliTurn(
             {
               ...plan.options,
-              // Panel Stop / client disconnect kills the spawned CLI (M4-5) —
+              // Panel Stop / client disconnect kills the spawned CLI —
               // otherwise the turn keeps running tools headless.
               signal: c.req.raw.signal,
             },
             (chunk) => writer.write(chunk),
           );
-          // M5-1 usage chips: the result event's usage rides as message metadata
+          // The result event's usage rides as message metadata
           // (the manual-write equivalent of toUIMessageStream's messageMetadata).
           if (outcome.result !== null && !outcome.result.isError) {
             writer.write({
@@ -143,7 +143,7 @@ export function chatRoutes(deps: ChatDeps) {
     try {
       // v7: async. This is the real validator for the loose `messages` wire — garbage
       // UIMessages throw here and surface as a 400, not a mid-stream error part.
-      // M5-10: dangling tool calls (panel closed mid-tool → persisted without a
+      // Dangling tool calls (panel closed mid-tool → persisted without a
       // result) are dropped first — replayed broken history otherwise makes every
       // provider reject the whole turn ("Tool result is missing for tool call …").
       messages = await convertToModelMessages(
@@ -162,7 +162,7 @@ export function chatRoutes(deps: ChatDeps) {
         ? JUNIOR_AGENT_SYSTEM
         : JUNIOR_SYSTEM;
 
-    // M5-1 usage chips: `finish` carries totalUsage + response.modelId — attach them as
+    // Usage chips: `finish` carries totalUsage + response.modelId — attach them as
     // message metadata (v7 docs: the messageMetadata callback on toUIMessageStream).
     // The metadata lands ON the finish chunk itself, not as a separate chunk (observed
     // on the wire). response.modelId is provider-dependent — fall back to the requested
@@ -203,7 +203,7 @@ export function chatRoutes(deps: ChatDeps) {
     // Every candidate runs the SAME agent options — a mid-chain fallback must not
     // silently drop the tool loop.
     const candidates = buildCandidateChain(body.data.provider, config.providers.fallbackChain);
-    // M5-10: a pre-token provider error doesn't always ride an error chunk (observed
+    // A pre-token provider error doesn't always ride an error chunk (observed
     // live: the UI stream just ends, the aggregate said "provider returned no
     // content") — capture the real failure per provider so the 502 body can name it.
     const providerErrors = new Map<string, string>();
@@ -214,7 +214,7 @@ export function chatRoutes(deps: ChatDeps) {
         messages,
         ...(tools !== undefined ? { tools, stopWhen } : {}),
         maxRetries: 0, // the fallback chain owns retries — SDK backoff would mask pre-token 5xxes
-        // M4-5 kill path: the panel's Stop aborts the request → the multi-step
+        // Kill path: the panel's Stop aborts the request → the multi-step
         // tool loop stops issuing dispatcher calls instead of running headless.
         abortSignal: c.req.raw.signal,
         onAbort: ({ steps }) =>
@@ -249,7 +249,7 @@ export function chatRoutes(deps: ChatDeps) {
     } catch (error) {
       if (error instanceof AllProvidersFailedError) {
         log(`[chat] ${error.message}`);
-        // M5-10: the aggregate alone ("provider returned no content") is useless in
+        // The aggregate alone ("provider returned no content") is useless in
         // the panel — append what the providers actually said (error-chunk text lands
         // in the failure strings; streamText onError text lands in providerErrors).
         const detail = [...providerErrors.entries()]

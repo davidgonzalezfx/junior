@@ -1,15 +1,14 @@
 // @junior/protocol/untrusted — the untrusted-data delimiter block (plan §6.3-2).
-// Port of Autono lib/autono-security.js:40–127 (verbatim in spirit; two Junior deltas,
-// see docs/decisions.md 2026-10-25): everything a web page controls and that reaches a
-// model prompt gets its delimiter/nonce tokens stripped to a fixed point first, so a
-// malicious page cannot close — or fake — its untrusted block and inject instructions.
-// Pure and environment-neutral (webcrypto only) so the bridge and the extension share it.
+// Port of Autono lib/autono-security.js:40–127: everything a web page controls and
+// that reaches a model prompt gets its delimiter/nonce tokens stripped to a fixed
+// point first, so a malicious page cannot close — or fake — its untrusted block and
+// inject instructions. Pure and environment-neutral (webcrypto only) so the bridge
+// and the extension share it.
 //
-// Deltas from Autono:
 // - randomHex uses globalThis.crypto.getRandomValues only (Node ≥ 19 and every
-//   Chrome context have webcrypto; Autono's require() fallback path is dead here).
-// - safeSlice never splits a UTF-16 surrogate pair — Autono's capFragment could emit a
-//   lone surrogate at the boundary, which serializes to invalid UTF-8 on the wire.
+//   Chrome context have webcrypto; a require() fallback path would be dead here).
+// - safeSlice never splits a UTF-16 surrogate pair — a cap cut mid-pair would emit
+//   a lone surrogate, which serializes to invalid UTF-8 on the wire.
 
 const TOKEN_RE = /UNTRUSTED[\s_-]*WEB[\s_-]*DATA/gi;
 
@@ -66,7 +65,7 @@ export function sanitizeDeep(value: unknown, nonce: string, depth = 0): unknown 
 export function capFragment(value: unknown, max: number, nonce?: string): string {
   const limit = Math.max(1, max || 60);
   let s = stripDelimiters(value, nonce)
-    // eslint-disable-next-line no-control-regex -- rejecting control characters is the point (M1-4 learning)
+    // eslint-disable-next-line no-control-regex -- rejecting control characters is the point
     .replace(/[\u0000-\u001f\u007f]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();

@@ -1,6 +1,6 @@
-// Panel shell — M2-2: onboarding on first run + bridge status bar. M2-4: chat +
-// ⌘K picker + Settings → Providers. M2-5: session history — App owns the active
-// session and the debounced history store (plan §5.3: junior_sessions, 500 ms
+// Panel shell — onboarding on first run + bridge status bar; chat + ⌘K picker +
+// Settings → Providers; session history — App owns the active session and the
+// debounced history store (plan §5.3: junior_sessions, 500 ms
 // debounced writes + write-on-hide, 200-session cap with export prompt).
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { UIMessage } from "ai";
@@ -44,7 +44,7 @@ export default function App() {
     });
   }
   const store = storeRef.current;
-  // M3-3 Port channel: pending approval cards + agent status (plan §5.2 item 5).
+  // Port channel: pending approval cards + agent status (plan §5.2 item 5).
   const agentChannel = useApprovalCards();
 
   // Write-on-hide: panel close lands any pending snapshot immediately (§5.3).
@@ -58,7 +58,7 @@ export default function App() {
   }, []);
 
   // Restore the last active session on open; fall back to the newest, else fresh.
-  // Storage migrations (M5-2) run first — the restore must read migrated data.
+  // Storage migrations run first — the restore must read migrated data.
   useEffect(() => {
     void (async () => {
       try {

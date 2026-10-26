@@ -48,7 +48,7 @@ export function saveConfig(config: JuniorConfig, dir: string = juniorDir()): voi
 }
 
 // 32 random bytes hex — port of AutonoSecurity.generatePairingToken
-// (autono-clone/Autono/lib/autono-security.js:38, verified M1-1).
+// (autono-clone/Autono/lib/autono-security.js:38).
 export function generateToken(): string {
   return randomBytes(32).toString("hex");
 }

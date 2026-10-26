@@ -1,5 +1,5 @@
 // Bridge status bar (plan §5.3): green/red dot from the /api/health poll + "Start bridge"
-// hint with a copy button when down — no silent failures. M5-1: the offline state is a
+// hint with a copy button when down — no silent failures. The offline state is a
 // proper banner (destructive tint, explicit "can't send" copy, manual re-check) instead
 // of a thin bar that reads as decorative.
 import { useBridgeStatus } from "@/hooks/use-bridge-status";

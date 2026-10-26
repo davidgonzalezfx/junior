@@ -21,7 +21,7 @@ import { probeClaude } from "../cli-detect.js";
 
 // §6.3-6: tool payloads are size-capped everywhere. Screenshots get their own (much
 // larger) ceiling — a 1280px JPEG data URL is legitimately a few hundred KB, while a
-// 5 MB dump must never reach a model context. M5-3 adds safeSlice so the cut can never
+// 5 MB dump must never reach a model context. safeSlice means the cut can never
 // split a UTF-16 surrogate pair (a lone surrogate serializes to invalid UTF-8).
 export const MAX_TOOL_TEXT_CHARS = 20_000;
 export const MAX_SCREENSHOT_TEXT_CHARS = 1_000_000;

@@ -1,7 +1,7 @@
 // lib/executors/screenshot.ts — captureVisibleTab post-processing (plan §5.2 item 3:
 // "downscale to max 1280px → JPEG q0.6 data URL"). The SW has no DOM Image, so the
 // pipeline is createImageBitmap + OffscreenCanvas; `scaledDims` is the pure part
-// tests can assert, the rest needs a real bitmap decoder (covered live in M3-5).
+// tests can assert, the rest needs a real bitmap decoder (covered live).
 export const SCREENSHOT_MAX_EDGE = 1280;
 export const SCREENSHOT_JPEG_QUALITY = 0.6;
 

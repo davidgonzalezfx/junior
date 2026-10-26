@@ -4,7 +4,7 @@
 // terminal Claude speaks. GET (server→client listening leg) and DELETE (session teardown)
 // have no meaning without sessions → 405, which the streamable-HTTP spec permits.
 // Auth (bearer) is mounted in index.ts, same middleware as /api/*; the §4.2 quota-burn
-// brake (rate-limit.ts, staged since M1-1) engages here on tools/call only — lifecycle
+// brake (rate-limit.ts) engages here on tools/call only — lifecycle
 // calls (initialize/tools/list/ping) are unmetered or the SDK handshake would trip it.
 import { Hono } from "hono";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";

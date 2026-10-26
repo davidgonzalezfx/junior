@@ -7,7 +7,7 @@ export const OpenAICompatibleProviderConfigSchema = z.object({
   label: z.string(),
   baseUrl: z.string(),
   apiKey: z.string(),
-  // Catalog persisted by POST /api/config/test (M5-6) — the only place that fetches
+  // Catalog persisted by POST /api/config/test — the only place that fetches
   // {baseUrl}/models; absent until the first successful "Test" in Settings.
   models: z.array(z.string()).optional(),
 });
@@ -25,7 +25,7 @@ export const ProvidersConfigSchema = z.object({
 
 export type ProvidersConfig = z.infer<typeof ProvidersConfigSchema>;
 
-// --- Settings → Providers wire shapes (M2-4; plan §5.3) -----------------------
+// --- Settings → Providers wire shapes (plan §5.3) -----------------------
 // The bridge owns the keys (~/.junior/config.json — see docs/decisions.md 2026-10-23);
 // these are the only shapes that cross the wire, and none of them ever carries a key
 // back to the extension (§7-5: masked views out, explicit new keys in).

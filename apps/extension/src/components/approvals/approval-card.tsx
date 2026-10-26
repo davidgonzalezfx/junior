@@ -1,4 +1,4 @@
-// Approval cards (plan §5.3, M3-3): bottom-sheet stack, one card per pending
+// Approval cards (plan §5.3): bottom-sheet stack, one card per pending
 // approval. Every row shows REAL probed facts from the wire contract
 // (ApprovalRequestSchema — background.js:1966–2010 contract, Junior fields) —
 // never model text (§6.3-1). Countdown ring counts down to the SW broker's
