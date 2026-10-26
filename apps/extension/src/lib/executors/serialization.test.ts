@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { juniorFrameInfoInPage } from "./frames";
 import { juniorActionInPage } from "./in-page";
+import { juniorBuildOutlineInPage } from "./outline";
 import { juniorReadTextInPage } from "./read-page";
 
 function reinject<F extends (...args: never[]) => unknown>(fn: F): F {
@@ -28,6 +29,22 @@ describe("in-page functions survive executeScript serialization", () => {
     b.getBoundingClientRect = () => ({ width: 10, height: 10 }) as DOMRect;
     const act = reinject(juniorActionInPage);
     expect(await act({ op: "probe", mode: "click", target: "#b" })).toMatchObject({ ok: true });
+  });
+
+  it("juniorBuildOutlineInPage installs the label hook and calls buildDomTree", () => {
+    document.body.innerHTML = `<button id="b" title="Mute"></button>`;
+    const win = window as unknown as Record<string, unknown>;
+    win.buildDomTree = () => ({ text: "built" });
+    try {
+      expect(reinject(juniorBuildOutlineInPage)({ mode: "outline", maxChars: 8000 })).toEqual({
+        text: "built",
+      });
+      const label = win.__junior_label_of as (el: Element) => string;
+      expect(label(document.getElementById("b")!)).toBe('title="Mute"');
+    } finally {
+      delete win.buildDomTree;
+      delete win.__junior_label_of;
+    }
   });
 
   it("juniorFrameInfoInPage", () => {

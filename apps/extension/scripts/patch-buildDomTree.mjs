@@ -1,4 +1,4 @@
-// One-shot patcher: applies Junior's three deltas to the vendored buildDomTree.js
+// One-shot patcher: applies Junior's deltas to the vendored buildDomTree.js
 // (plan §6.1). Run from apps/extension: node scripts/patch-buildDomTree.mjs
 // Idempotency: anchors include Junior markers, so re-running is a no-op.
 import { readFileSync, writeFileSync } from "node:fs";
@@ -6,8 +6,8 @@ import { readFileSync, writeFileSync } from "node:fs";
 const FILE = "public/vendor/buildDomTree.js";
 let src = readFileSync(FILE, "utf8");
 
-function replaceOnce(needle, replacement) {
-  if (src.includes(replacement)) return; // already patched
+function replaceOnce(needle, replacement, doneMarker = replacement) {
+  if (src.includes(doneMarker)) return; // already patched
   if (!src.includes(needle)) {
     throw new Error(`anchor not found:\n${needle}`);
   }
@@ -32,7 +32,7 @@ const NOTICE = `/*
  */
 
 window.buildDomTree = (`;
-replaceOnce("window.buildDomTree = (", NOTICE);
+replaceOnce("window.buildDomTree = (", NOTICE, "Junior NOTICE"); // patch 4 extends the list
 
 // ── Patch 1b: tolerate partial args (Junior calls with {mode, maxChars} only —
 //    upstream defaults apply ONLY when `args` itself is omitted, so absent
@@ -143,6 +143,41 @@ replaceOnce(
 
   return { rootId, map: DOM_HASH_MAP };
 };`,
+  "// ── Junior addition: compact serialization", // patch 4 edits inside this block
+);
+
+// ── Patch 4 (T5b): fallback labels for elements without readable text (icon-only
+//    player buttons). The labeling is Junior code — lib/executors/outline.ts
+//    installs window.__junior_label_of before calling buildDomTree. ──
+replaceOnce(
+  ` *   3. input values in interactive mode are masked for sensitive fields.
+ * Everything`,
+  ` *   3. input values in interactive mode are masked for sensitive fields;
+ *   4. elements without readable text get a fallback label from the Junior-owned
+ *      \`window.__junior_label_of\` hook (aria-label, title, icon, data-*).
+ * Everything`,
+);
+replaceOnce(
+  `      var href = tag === 'a' && el.getAttribute ? el.getAttribute('href') || '' : '';
+      var line;`,
+  `      var href = tag === 'a' && el.getAttribute ? el.getAttribute('href') || '' : '';
+      // Junior: fallback label when the text has no letters or digits (see NOTICE).
+      var fallback = '';
+      if (!/[\\p{L}\\p{N}]/u.test(text) && typeof window.__junior_label_of === 'function') {
+        try { fallback = String(window.__junior_label_of(el) || '').slice(0, 200); } catch (e) {}
+      }
+      var line;`,
+);
+replaceOnce(
+  `        if (text) parts.push(JSON.stringify(text));
+        if (value)`,
+  `        if (text) parts.push(JSON.stringify(text));
+        if (fallback) parts.push(fallback);
+        if (value)`,
+);
+replaceOnce(
+  `(text ? ' ' + JSON.stringify(text) : '') + (href ? ' (' + href + ')' : '');`,
+  `(text ? ' ' + JSON.stringify(text) : '') + (fallback ? ' ' + fallback : '') + (href ? ' (' + href + ')' : '');`,
 );
 
 writeFileSync(FILE, src);

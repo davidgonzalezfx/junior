@@ -30,6 +30,7 @@ import {
   type ReadTextRequest,
   type ReadTextResponse,
 } from "./read-page";
+import { juniorBuildOutlineInPage } from "./outline";
 import { downscaleDataUrl } from "./screenshot";
 import {
   frameRefId,
@@ -134,7 +135,8 @@ export const defaultEnv: ExecutorEnv = {
   async runBuildDomTree(tabId, args, frameId) {
     // Autono pattern (background.js:3553): inject the vendored file, then invoke
     // window.buildDomTree with args (executeScript serializes only the body, so
-    // the call goes through a tiny trampoline that reads it off the page window).
+    // the call goes through juniorBuildOutlineInPage, which reads it off the page
+    // window after installing the fallback-label hook).
     // Runtime path is extension-root-relative WITHOUT a leading slash (Chrome
     // rejects the slash; WXT's generated ScriptPublicPath type wants one — same
     // types-vs-Chrome mismatch as captureVisibleTab's windowId, cast it).
@@ -144,15 +146,7 @@ export const defaultEnv: ExecutorEnv = {
     });
     const results = await browser.scripting.executeScript({
       target: frameTarget(tabId, frameId),
-      func: (a: BuildDomTreeArgs) => {
-        const build = (
-          window as unknown as {
-            buildDomTree?: (a: BuildDomTreeArgs) => unknown;
-          }
-        ).buildDomTree;
-        if (typeof build !== "function") return null;
-        return build(a);
-      },
+      func: juniorBuildOutlineInPage,
       args: [args],
     });
     const res = results[0]?.result;

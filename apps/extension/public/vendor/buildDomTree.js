@@ -9,7 +9,9 @@
  *      resolver can invalidate it on navigation;
  *   2. `args.mode: "outline" | "interactive"` returns a compact token-cheap
  *      serialization of the highlighted elements instead of the full DOM map;
- *   3. input values in interactive mode are masked for sensitive fields.
+ *   3. input values in interactive mode are masked for sensitive fields;
+ *   4. elements without readable text get a fallback label from the Junior-owned
+ *      `window.__junior_label_of` hook (aria-label, title, icon, data-*).
  * Everything between this notice and those changes is upstream code, unmodified.
  */
 
@@ -1533,6 +1535,11 @@ window.buildDomTree = (
       var tag = String(el.tagName || '').toLowerCase();
       var text = ((el.innerText || el.textContent || '').replace(/\s+/g, ' ')).trim().slice(0, 120);
       var href = tag === 'a' && el.getAttribute ? el.getAttribute('href') || '' : '';
+      // Junior: fallback label when the text has no letters or digits (see NOTICE).
+      var fallback = '';
+      if (!/[\p{L}\p{N}]/u.test(text) && typeof window.__junior_label_of === 'function') {
+        try { fallback = String(window.__junior_label_of(el) || '').slice(0, 200); } catch (e) {}
+      }
       var line;
       if (mode === 'interactive') {
         var type = el.getAttribute ? (el.getAttribute('type') || '').toLowerCase() : '';
@@ -1548,11 +1555,12 @@ window.buildDomTree = (
         if (type) parts.push('type=' + type);
         if (role) parts.push('role=' + role);
         if (text) parts.push(JSON.stringify(text));
+        if (fallback) parts.push(fallback);
         if (value) parts.push('value=' + JSON.stringify(value));
         if (href) parts.push('(' + href + ')');
         line = parts.join(' ');
       } else {
-        line = '[' + indexes[i] + '] ' + tag + (text ? ' ' + JSON.stringify(text) : '') + (href ? ' (' + href + ')' : '');
+        line = '[' + indexes[i] + '] ' + tag + (text ? ' ' + JSON.stringify(text) : '') + (fallback ? ' ' + fallback : '') + (href ? ' (' + href + ')' : '');
       }
       if (used + line.length + 1 > cap) { truncated = true; break; }
       lines.push(line);
