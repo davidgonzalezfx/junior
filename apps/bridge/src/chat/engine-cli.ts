@@ -197,21 +197,26 @@ export async function runCliTurn(
 
   child.stdout?.setEncoding("utf8");
   child.stderr?.setEncoding("utf8");
-  child.stdout?.on("data", (chunk: string) => {
-    for (const line of chunk.split("\n")) {
-      // Lines only ever split at the buffered boundary — a trailing "" from the final
-      // newline is skipped by the JSON.parse guard below.
-      if (!line.trim()) continue;
-      let event: unknown;
-      try {
-        event = JSON.parse(line);
-      } catch {
-        mapper.unknownLines += 1;
-        log(`[chat:cli] unparsable stream-json line (skipped): ${line.slice(0, 200)}`);
-        continue;
-      }
-      for (const out of mapper.handle(event)) write(out);
+  const handleLine = (line: string): void => {
+    if (!line.trim()) return; // blank lines, and the lone "\r" of a CRLF split
+    let event: unknown;
+    try {
+      event = JSON.parse(line); // JSON whitespace includes "\r", so CRLF lines parse
+    } catch {
+      mapper.unknownLines += 1;
+      log(`[chat:cli] unparsable stream-json line (skipped): ${line.slice(0, 200)}`);
+      return;
     }
+    for (const out of mapper.handle(event)) write(out);
+  };
+  // Data chunks arrive at arbitrary byte boundaries — a long line (tool inputs, the
+  // result event) spans several. setEncoding's decoder keeps split multi-byte chars
+  // intact; the trailing partial line is held until its newline or stream close.
+  let pending = "";
+  child.stdout?.on("data", (chunk: string) => {
+    const lines = (pending + chunk).split("\n");
+    pending = lines.pop() ?? "";
+    for (const line of lines) handleLine(line);
   });
   child.stderr?.on("data", (chunk: string) => {
     stderrTail = (stderrTail + chunk).slice(-STDERR_TAIL_CAP);
@@ -238,6 +243,10 @@ export async function runCliTurn(
       child.on("close", (code, signal) => resolve({ code, signal }));
     },
   );
+
+  // "close" fires after stdout ended: a final line without a newline is complete.
+  handleLine(pending);
+  pending = "";
 
   for (const name of mapper.failedMcpServers) {
     log(`[chat:cli] MCP server failed to connect: ${name} (init event)`);
