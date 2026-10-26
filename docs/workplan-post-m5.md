@@ -82,7 +82,15 @@
     `read-page.test.ts` (427) shrinks or keeps its note.
   - DoD: no test *behavior* changes — moves + assertions preserved; all suites green; file
     budgets respected.
-- [ ] **C3 — Light abstractions** *(R§7.4, §5.5, ~1 session)*
+- [x] **C3 — Light abstractions** *(R§7.4, §5.5, ~1 session)* **DONE 2026-10-26
+  (commits ed2040e + cd05e19):** `chat/routes.ts` 269→186 keeps validation + api engine +
+  fallback orchestration. The engine "cli" branch moves verbatim to `chat/cli-route.ts`
+  (`cliChatResponse`, 70). Both metadata mappers (`cliResultToMetadata` out of
+  `engine-cli.ts`, `metadataFrom` out of the handler closure) move to `chat/metadata.ts` (53), and
+  the mapper test moves with them to `metadata.test.ts`. Permission-mode enum: one source,
+  `PERMISSION_MODES` in `protocol/guard.ts`. Both config schemas use `z.enum(PERMISSION_MODES)`,
+  and `PermissionMode`/`normalizePermissionMode` already derived from it. Test counts unchanged.
+  **Wave C closed.**
   - Split `chat/routes.ts` (269 lines): CLI branch → `chat/cli-route.ts`, metadata mappers →
     `chat/metadata.ts`. Permission-mode enum written 4× → one exported constant
     (`config.ts:72,94`, `guard.ts:280,285`, R§5.5).
@@ -251,3 +259,7 @@ U…                       (optional)
   routes/read-page retired · behavior-preserving, assertions verbatim; gates green (166 protocol +
   229 bridge + 290 ext + 13 tests incl. 2 gated skip + 5 spikes + 6 testkit) · 2a2bc3e, 400ffbf,
   eb5dc0b, fd19b62
+- 2026-10-26 — C3 done · chat/routes.ts split (cli-route.ts + metadata.ts) + permission-mode
+  enum single-sourced on PERMISSION_MODES · pure moves, zero behavior change; gates green
+  (166 protocol + 229 bridge + 290 ext + 13 tests incl. 2 gated skip + 5 spikes + 6 testkit;
+  read-page flake rerun isolated → green) · ed2040e, cd05e19 · **Wave C closed**

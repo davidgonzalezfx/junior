@@ -5,7 +5,7 @@
 
 **Updated:** 2026-10-26
 **Current milestone:** M5 Polish + hardening — ✅ **complete (5/5)** incl. M5-6/M5-7/M5-9/M5-10 bugfixes; `docs/qa.md` all green (the plan §8 M5 accept gate)
-**Current task:** none claimed (**next up: C3 light abstractions** per docs/workplan-post-m5.md — chat/routes.ts split + permission-mode enum constant; milestone list M0–M5 done. Open seeds live at the bottom of this file)
+**Current task:** none claimed (**next up: T2** per docs/workplan-post-m5.md — Wave C closed with C3; milestone list M0–M5 done. Open seeds live at the bottom of this file)
 **Current blockers:** none
 
 ---
@@ -417,6 +417,10 @@
 - [test-support] A mutable shared array exported from a support module can't be reassigned by importers: reset with `arr.length = 0` (chat-panel `resetChatRequests`). Same reference, same semantics.
 - [env] The spike's `gateway-anthropic.test.tsx` runs only with `ANTHROPIC_API_KEY` + `ANTHROPIC_BASE_URL` in the shell. Session restarts can drop them, so spikes show `4 passed | 1 skipped` instead of `5 passed`. Total stays 5, and it's not a regression.
 
+### 2026-10-26 (post-M5 C3 light-abstractions session)
+- [zod] `z.enum(PERMISSION_MODES)` takes the guard.ts `as const` tuple directly (zod v4), so config.ts imports the runtime constant from guard.ts. guard.ts stays pure: its only import is a type from approval.ts, so no cycle.
+- [bridge] chat/ layout after C3: routes.ts = validation + api engine + fallback; cli-route.ts = engine "cli" stream writer; metadata.ts = both usage-chip mappers (cliResultToMetadata is no longer exported from engine-cli.ts).
+
 ## Backlog seeds
 
 > Ideas discovered mid-work land here (protocol: CLAUDE.md). Never into the current diff.
@@ -479,3 +483,4 @@
 - 2026-10-26 · post-M5 T1 · agent tab isolation green (the reported Gmail/WhatsApp wrong-tab leak): lib/agent-tab.ts AgentTabManager (cached id → junior_agent_tab recall → tabGroups "Junior" search → create pinned+grouped, grouping best-effort) + withAgentTab env wrapper wired at background + harness; screenshot reveals the agent tab and captures by windowId; tabGroups permission; fail-first e2e red pre-fix (get_active_tab reported the user's mail tab) green post-fix; +11 tests (290 ext, 11 harness) + full gates; no protocol change; multi-window v1 policy → decisions.md, workplan-post-m5.md ticked · 0e12edb, f676d79
 - 2026-10-26 · post-M5 C1 · behavior-preserving clean-up green: dead code deleted (PROTOCOL_API_LEVEL + its tripwire test, wrapUntrusted — strip half untouched, select()-before-typing in the in-page type op, PortRouterOptions.onContentMessage — deleted not wired: content messages are enforced in work-overlay.ts via runtime.onMessage, the seam was uninvokable by construction) + comment sweep across apps/ + packages/ (Mx-y/learning tags, Autono-delta bookkeeping, stale "until X lands" out; invariants, plan § refs, Autono attributions, decisions.md cites in — mcp/tools.ts's Mx-y is a runtime string, untouched); zero-caller grep proofs per deletion in the commit message; gates green, test count −2 exactly (the deleted dead tripwires: 166 protocol + 229 bridge + 290 ext + 13 tests incl. 2 gated skip + 5 spikes; read-page 1500-element flake rerun isolated → green); workplan-post-m5.md ticked · f0f2341, e9f8505
 - 2026-10-26 · post-M5 C2 · `@junior/testkit` + test dedup green, behavior-preserving: jsdom layout stubs (stacked rect + elementFromPoint for fake-tab/read-page; fixed-origin makeVisible for in-page, kept as two factories because they are genuinely different layouts), Anthropic/UI SSE builders, CLI stream-json fixtures, UIMessage factories, OpenAI-compat mock all live in testkit with byte-equality pins. Over-budget notes retired: chat-panel 689→299 (+agent 252), engine-cli 630→250 (+run 106, +route 182), routes 578→245 (+fallback 118, +agent 81), read-page 427→393. Assertions verbatim (407 expect statements before/after, identical multiset). Gates: 166 protocol + 229 bridge + 290 ext + 13 tests incl. 2 gated skip + 5 spikes (1 env-gated skip, no keys in shell) + 6 new testkit pins · 2a2bc3e, 400ffbf, eb5dc0b, fd19b62
+- 2026-10-26 · post-M5 C3 · light abstractions, behavior-preserving: chat/routes.ts 269→186 (CLI branch → cli-route.ts 70, both metadata mappers → metadata.ts 53, cliResultToMetadata test → metadata.test.ts); permission-mode enum single source = guard.ts PERMISSION_MODES (config.ts JuniorConfig + ExtensionSettings schemas now `z.enum(PERMISSION_MODES)`). Gates: 166 protocol + 229 bridge + 290 ext (read-page 1500-element flake, isolated rerun green) + 13 tests incl. 2 gated skip + 5 spikes (1 env-gated skip) + 6 testkit · ed2040e, cd05e19
