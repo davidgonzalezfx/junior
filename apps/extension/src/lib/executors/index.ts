@@ -31,6 +31,12 @@ import {
   type ReadTextResponse,
 } from "./read-page";
 import { juniorBuildOutlineInPage } from "./outline";
+import {
+  juniorMediaInPage,
+  runMedia,
+  type MediaInPageRequest,
+  type MediaInPageResponse,
+} from "./media";
 import { downscaleDataUrl } from "./screenshot";
 import {
   frameRefId,
@@ -82,6 +88,13 @@ export interface ExecutorEnv {
     args: BuildDomTreeArgs,
     frameId?: number,
   ): Promise<BuildDomTreeResult | null>;
+  /** T5b media tool (HTMLMediaElement API in one frame). Optional: without it
+   * the media tool reports itself unavailable. */
+  runMediaInPage?(
+    tabId: number,
+    args: MediaInPageRequest,
+    frameId?: number,
+  ): Promise<MediaInPageResponse>;
   /** T5a: every frame of the tab (executeScript allFrames — no webNavigation
    * permission). Optional: without it reads and actions see the top frame only. */
   listFrames?(tabId: number): Promise<FrameInfo[]>;
@@ -120,6 +133,15 @@ export const defaultEnv: ExecutorEnv = {
     const results = await browser.scripting.executeScript({
       target: frameTarget(tabId, frameId),
       func: juniorReadTextInPage,
+      args: [args],
+    });
+    const first = results[0];
+    return first?.result ?? { ok: false as const, error: "Injection returned no result" };
+  },
+  async runMediaInPage(tabId, args, frameId) {
+    const results = await browser.scripting.executeScript({
+      target: frameTarget(tabId, frameId),
+      func: juniorMediaInPage,
       args: [args],
     });
     const first = results[0];
@@ -280,6 +302,37 @@ export async function executeAction(
     return res.ok ? { status: "ok", result: res.message } : errorOutcome(res.error);
   }
 
+  const permissionMode = await env.permissionMode();
+  // The guard verdict + approval for real element facts. Inside a frame it judges
+  // BOTH sites — the page the user sees and the frame the action lands in — and
+  // the stricter verdict wins. null = go ahead.
+  const guard = async (
+    check: (pageUrl: string, granted: boolean | undefined) => PreActCheck,
+    frameUrl: string | undefined,
+  ): Promise<ExecuteOutcome | null> => {
+    const checkAt = async (pageUrl: string) => check(pageUrl, await opts.granted?.(pageUrl));
+    const verdicts = [await checkAt(tab.url ?? "")];
+    if (frameUrl !== undefined) verdicts.push(await checkAt(frameUrl));
+    const verdict = strictest(verdicts);
+    if (verdict.verdict === "deny") return { status: "denied", error: verdict.error };
+    if (verdict.verdict === "ask") {
+      const answer = await ask(verdict.approval);
+      if (answer === "deny") return { status: "denied", error: USER_DENIED_TEXT };
+    }
+    return null;
+  };
+
+  if (action.kind === "media") {
+    // T5b: controls go through the click guard on the media element's facts;
+    // a state read is a read (no card), like read_page.
+    return await runMedia(env, { id: tab.id, url: tab.url }, action, (facts, frameUrl) =>
+      guard(
+        (pageUrl, granted) => checkClickFacts({ mode: permissionMode, pageUrl, facts, granted }),
+        frameUrl,
+      ),
+    );
+  }
+
   // T5a: `f7:<target>` runs in that child frame; anything else in the top frame.
   let target = action.target;
   let frameId: number | undefined;
@@ -303,33 +356,25 @@ export async function executeAction(
   const probe = await env.runInPage(tab.id, { op: "probe", mode, target }, ...inFrame);
   if (!probe.ok) return errorOutcome(probe.error);
 
-  // Inside a frame the guard judges BOTH sites — the page the user sees and the
-  // frame the action lands in — and the stricter verdict wins.
-  const permissionMode = await env.permissionMode();
-  const checkAt = async (pageUrl: string): Promise<PreActCheck> =>
-    mode === "click"
-      ? checkClickFacts({
-          mode: permissionMode,
-          pageUrl,
-          facts: probe.facts as InPageClickFacts,
-          granted: await opts.granted?.(pageUrl),
-        })
-      : checkTypeFacts({
-          mode: permissionMode,
-          pageUrl,
-          facts: probe.facts as InPageFieldFacts,
-          text: text ?? "",
-          granted: await opts.granted?.(pageUrl),
-        });
-  const verdicts = [await checkAt(tab.url ?? "")];
-  if (frameUrl !== undefined) verdicts.push(await checkAt(frameUrl));
-  const verdict = strictest(verdicts);
-
-  if (verdict.verdict === "deny") return { status: "denied", error: verdict.error };
-  if (verdict.verdict === "ask") {
-    const answer = await ask(verdict.approval);
-    if (answer === "deny") return { status: "denied", error: USER_DENIED_TEXT };
-  }
+  const stop = await guard(
+    (pageUrl, granted) =>
+      mode === "click"
+        ? checkClickFacts({
+            mode: permissionMode,
+            pageUrl,
+            facts: probe.facts as InPageClickFacts,
+            granted,
+          })
+        : checkTypeFacts({
+            mode: permissionMode,
+            pageUrl,
+            facts: probe.facts as InPageFieldFacts,
+            text: text ?? "",
+            granted,
+          }),
+    frameUrl,
+  );
+  if (stop) return stop;
 
   const act: InPageRequest =
     mode === "click"

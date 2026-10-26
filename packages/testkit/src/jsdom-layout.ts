@@ -64,3 +64,49 @@ export function stubJsdomElementBasics(opts: { offsetSize?: boolean } = {}): voi
     }
   }
 }
+
+export interface FakeMediaOptions {
+  duration?: number;
+  /** play() rejects with NotAllowedError unless muted (Chrome's autoplay policy
+   * for a page without a user gesture). */
+  autoplayBlocked?: boolean;
+  /** play() never settles (a stalled stream). */
+  stalled?: boolean;
+}
+
+/** jsdom implements no media playback (play/pause log "not implemented"): give
+ * one element a working paused/currentTime/duration model. */
+export function fakeMedia(el: HTMLMediaElement, opts: FakeMediaOptions = {}): void {
+  let paused = true;
+  let time = 0;
+  const define = (name: string, get: () => unknown, set?: (v: never) => void) =>
+    Object.defineProperty(el, name, { configurable: true, get, set });
+  define("paused", () => paused);
+  define("duration", () => opts.duration ?? 600);
+  define("readyState", () => 4);
+  define(
+    "currentTime",
+    () => time,
+    (v: number) => {
+      time = v;
+      // The element's own realm's Event (a test may run several jsdom windows).
+      const Ev = (el.ownerDocument.defaultView as unknown as { Event: typeof Event }).Event;
+      queueMicrotask(() => el.dispatchEvent(new Ev("seeked")));
+    },
+  );
+  el.play = () => {
+    if (opts.stalled) return new Promise<void>(() => {});
+    if (opts.autoplayBlocked && !el.muted) {
+      const err = new Error(
+        "play() failed because the user didn't interact with the document first.",
+      );
+      err.name = "NotAllowedError";
+      return Promise.reject(err);
+    }
+    paused = false;
+    return Promise.resolve();
+  };
+  el.pause = () => {
+    paused = true;
+  };
+}

@@ -36,6 +36,7 @@ import { juniorActionInPage } from "@/lib/executors/in-page";
 import { juniorReadTextInPage } from "@/lib/executors/read-page";
 import { juniorFrameInfoInPage } from "@/lib/executors/frames";
 import { juniorBuildOutlineInPage } from "@/lib/executors/outline";
+import { juniorMediaInPage } from "@/lib/executors/media";
 import { addSiteGrant, getSiteGrants, grantCovers } from "@/lib/site-grants";
 import { PANEL_PORT_NAME, PortRouter, type PortLike } from "@/lib/port-router";
 import { PanelApprovalBroker } from "@/lib/panel-approvals";
@@ -208,6 +209,10 @@ export async function startHarness(opts: HarnessOptions): Promise<Harness> {
     async runInPage(tabId, args, frameId) {
       tabsById.get(tabId)?.focus(frameId);
       return await juniorActionInPage(args);
+    },
+    async runMediaInPage(tabId, args, frameId) {
+      tabsById.get(tabId)?.focus(frameId);
+      return await juniorMediaInPage(args);
     },
     async runReadInPage(tabId, args, frameId) {
       tabsById.get(tabId)?.focus(frameId);

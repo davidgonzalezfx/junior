@@ -206,5 +206,6 @@ function actionTargetOf(action: BrowserAction): string {
   if (action.kind === "navigate") return action.url;
   if (action.kind === "click" || action.kind === "type") return action.target;
   if (action.kind === "read_page") return action.mode;
+  if (action.kind === "media") return `${action.op} ${action.target ?? ""}`.trim();
   return "";
 }

@@ -24,6 +24,8 @@ describe("BrowserActionSchema (plan §3)", () => {
       { kind: "scroll", direction: "up", amount: 500 },
       { kind: "screenshot" },
       { kind: "get_active_tab" },
+      { kind: "media", op: "pause", target: "f7:m0" },
+      { kind: "media", op: "seek", time: 90 },
     ]) {
       expect(BrowserActionSchema.parse(action)).toMatchObject(action);
     }
@@ -35,6 +37,12 @@ describe("BrowserActionSchema (plan §3)", () => {
       mode: "outline",
       maxChars: 8000,
     });
+  });
+
+  it("media defaults to a state read and rejects unknown ops and negative seeks", () => {
+    expect(BrowserActionSchema.parse({ kind: "media" })).toEqual({ kind: "media", op: "state" });
+    expect(() => BrowserActionSchema.parse({ kind: "media", op: "stop" })).toThrow();
+    expect(() => BrowserActionSchema.parse({ kind: "media", op: "seek", time: -1 })).toThrow();
   });
 
   it("rejects unknown kinds and constraint violations", () => {

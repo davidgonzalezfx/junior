@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { juniorFrameInfoInPage } from "./frames";
 import { juniorActionInPage } from "./in-page";
+import { juniorMediaInPage } from "./media";
 import { juniorBuildOutlineInPage } from "./outline";
 import { juniorReadTextInPage } from "./read-page";
 
@@ -45,6 +46,12 @@ describe("in-page functions survive executeScript serialization", () => {
       delete win.buildDomTree;
       delete win.__junior_label_of;
     }
+  });
+
+  it("juniorMediaInPage state", async () => {
+    document.body.innerHTML = `<video src="x.mp4"></video>`;
+    const media = reinject(juniorMediaInPage);
+    expect(await media({ op: "state" })).toMatchObject({ ok: true, media: [{ tag: "video" }] });
   });
 
   it("juniorFrameInfoInPage", () => {
