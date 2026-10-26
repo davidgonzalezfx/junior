@@ -2,6 +2,7 @@
 // round-trips with corrupt-entry filtering, and the debounced SessionStore
 // (fake timers; fakeBrowser auto-resets per test via WxtVitest).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { assistantMessage as assistantMsg, userMessage as userMsg } from "@junior/testkit/chat";
 import { fakeBrowser } from "wxt/testing/fake-browser";
 import type { UIMessage } from "ai";
 import {
@@ -26,14 +27,6 @@ import {
   upsertSession,
   type StoredSession,
 } from "@/lib/history";
-
-function userMsg(text: string): UIMessage {
-  return { id: `u-${text}`, role: "user", parts: [{ type: "text", text }] };
-}
-
-function assistantMsg(text: string): UIMessage {
-  return { id: `a-${text}`, role: "assistant", parts: [{ type: "text", text }] };
-}
 
 function makeSession(overrides: Partial<StoredSession> = {}): StoredSession {
   return { ...emptySession(), ...overrides };

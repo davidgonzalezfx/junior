@@ -2,9 +2,6 @@
 // runner's read_page routing, and the REAL vendored buildDomTree.js evaluated in
 // jsdom with stubbed layout — outline/interactive output, __junior_dom_map
 // population, URL invalidation, and resolver integration (click "[1]" via map).
-// (424 lines — over the ~400 budget: one jsdom+layout-stub harness serves the
-// unit tests, the M5-3 fuzz block, and the M5-4 size audit; splitting any group
-// out would duplicate the stubs rather than simplify.)
 /** @vitest-environment jsdom */
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";

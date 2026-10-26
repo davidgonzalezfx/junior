@@ -15,18 +15,12 @@ import { fakeBrowser } from "wxt/testing/fake-browser";
 import type { UIMessage } from "ai";
 import { ChatPanel } from "@/components/chat-panel";
 import { emptySession, type StoredSession } from "@/lib/history";
+import { uiTextTurn } from "@junior/testkit/wire";
+import { installPanelJsdom, panelFetch } from "./chat-panel.test-support";
 
-(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+installPanelJsdom();
 
 beforeEach(() => fakeBrowser.reset());
-
-class ResizeObserverStub {
-  observe(): void {}
-  unobserve(): void {}
-  disconnect(): void {}
-}
-(globalThis as Record<string, unknown>).ResizeObserver = ResizeObserverStub;
-Element.prototype.scrollIntoView = () => {};
 
 const STATUS = {
   version: "0.0.0",
@@ -44,33 +38,13 @@ const STATUS = {
   queueDepth: 0,
 };
 
-const UI_STREAM = [
-  `data: {"type":"start"}`,
-  `data: {"type":"start-step"}`,
-  `data: {"type":"text-start","id":"1"}`,
-  `data: {"type":"text-delta","id":"1","delta":"Reply **with** markdown."}`,
-  `data: {"type":"text-end","id":"1"}`,
-  `data: {"type":"finish-step"}`,
-  `data: {"type":"finish"}`,
-  `data: [DONE]`,
-]
-  .map((line) => `${line}\n\n`)
-  .join("");
+const UI_STREAM = uiTextTurn(["Reply **with** markdown."]);
 
 function stubFetch() {
-  return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const url = String(input);
-    if (url.endsWith("/api/status")) {
-      return new Response(JSON.stringify(STATUS), {
-        headers: { "content-type": "application/json" },
-      });
-    }
-    if (url.endsWith("/api/chat")) {
-      void init;
-      return new Response(UI_STREAM, { headers: { "content-type": "text/event-stream" } });
-    }
-    return new Response(JSON.stringify({ error: "unexpected" }), { status: 404 });
-  };
+  return panelFetch(
+    () => new Response(UI_STREAM, { headers: { "content-type": "text/event-stream" } }),
+    STATUS,
+  );
 }
 
 /** A representative transcript: alternating user/assistant rows with markdown

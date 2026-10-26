@@ -1,6 +1,9 @@
 // M0-4 spike: minimal local OpenAI-compatible chat-completions mock.
 // Gives @ai-sdk/openai-compatible a real SSE wire to parse — offline and
 // deterministic — standing in for OpenRouter (plan §4.5 provider path).
+// The app tests use the option-driven descendant in @junior/testkit/openai-mock;
+// this variant stays spike-local on purpose (request headers recorded, mutable
+// `mode`, include_usage honored, explicit close()) and is frozen with the spike.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 
 export interface MockOpenAIRequest {

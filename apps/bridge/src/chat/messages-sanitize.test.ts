@@ -4,12 +4,9 @@
 // result-without-a-clean-state kept, empty assistant turns dropped, garbage parts
 // arrays left for the SDK validator.
 import { describe, expect, it } from "vitest";
+import { userMessage as userMsg } from "@junior/testkit/chat";
 import type { UIMessage } from "ai";
 import { dropDanglingToolCalls } from "./messages-sanitize.js";
-
-function userMsg(text: string): UIMessage {
-  return { id: `u-${text}`, role: "user", parts: [{ type: "text", text }] };
-}
 
 /** A tool part in an arbitrary state with arbitrary result fields. */
 function toolPart(overrides: Record<string, unknown>): Record<string, unknown> {
