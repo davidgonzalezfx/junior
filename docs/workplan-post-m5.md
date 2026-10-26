@@ -29,8 +29,23 @@
   (CLAUDE.md rule — never strip those).
 - **Don't touch:** `docs/qa.md` (frozen record), `plan.md` except where a story says to update it,
   `review.md` (evidence reference).
-- Known red herring to ignore: `read-page.test.ts` 1500-element stress test flakes under full
-  parallel load; passes in isolation (seen M5-9 + M5-5 close-out). Rerun isolated before debugging.
+- **Reply back to the director (worker → `junior:0.1`).** As the LAST action of a story, after
+  the commits and the workplan tick, notify the director with exactly these two commands:
+
+  ```bash
+  tmux send-keys -t junior:0.1 '[worker junior:0.0] T7 done: <outcome>; commits <hashes>; user verify: <yes/no>'
+  tmux send-keys -t junior:0.1 Enter
+  ```
+
+  Rules: one line, under ~300 characters, single-quoted, and no apostrophes or single quotes
+  inside the message (they end the shell string). Always start with `[worker junior:0.0]` and the
+  story ID. Send it once per story, plus once more only if you are **blocked** or need a **user
+  decision** (`[worker junior:0.0] T5 blocked: <why>`). Never send anything else to that pane,
+  and never send to the user's panes. The full report stays in your own pane; the director reads
+  it there.
+- Known red herrings to ignore: `read-page.test.ts` 1500-element stress test and the two-process
+  turn-1/turn-2 test in `engine-cli.route.test.ts` flake under full parallel load; both pass in
+  isolation. Rerun isolated before debugging.
 
 ---
 
