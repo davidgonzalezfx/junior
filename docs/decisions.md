@@ -491,3 +491,39 @@ them at once, because an open panel reconnects within ~1 s. Affects: `lib/approv
 (new), `lib/panel-approvals.ts`, `lib/agent-runtime.ts` (new, extracted from `background.ts`),
 `lib/agent-loop.ts`, `lib/approval-cards.ts` (new reducer), `hooks/use-approval-cards.ts`,
 `protocol/approval.ts`, `bridge/dispatcher/queue.ts`.
+
+## 2026-10-26 · Frame-aware page actions: stateless `f<frameId>:<target>` targets (T5a)
+
+**Context:** executors injected into the top frame only, so a cross-origin iframe (YouTube embed,
+payment or sign-in widget) was invisible to `read_page` and unreachable for click/type/scroll.
+**Options for the target encoding:** (a) a SW-side global index map (one flat numbering, SW
+remembers index → `{frameId, localIndex}`); (b) frame-qualified targets that carry Chrome's own
+frameId, `f7:12`. **Choice: (b).** It is stateless: the SW can be suspended between `read_page`
+and `click` (T4), and MCP clients replay targets they read earlier. A map would silently go stale
+or be lost in both cases, while a stale `f7:` fails loudly ("Frame f7 not found … read_page
+again"). The same prefix scopes any target (`f7:Play`, `f7:#player`, an XPath) and a section
+selector, and scroll gets an optional `frame: "f7"` (additive protocol field, `FrameRef`).
+**Top frame unchanged:** plain targets and `f0:` mean the top frame, through the same
+executeScript call as before (no `frameIds`). The top frame's buildDomTree keeps descending
+into same-origin iframes it can script, so those elements keep their plain indices and the top
+outline is byte-identical to pre-T5a. A child frame reports `coveredByParent`
+(`window.frameElement !== null`) and outline modes skip it, so nothing is listed twice. Text
+reads include covered frames, because `innerText` never crosses an iframe. **Enumeration:**
+`executeScript({target:{tabId, allFrames:true}})` results carry `frameId`, so no
+`webNavigation` permission is needed (that permission's warning reads as browsing-history
+access). Frames are enumerated for the agent tab only (T1). Without enumeration (or if it
+throws), reads see the top frame only and frame targets fail closed. **Safety:** frames whose
+URL is restricted (other extensions' iframes, `about:`, `chrome://`) are never read or targeted.
+The secret-field refusal runs on the in-frame probe's facts, as in the top frame. The guard
+judges both the tab URL and the frame URL and the stricter verdict wins (deny > ask > allow), so
+a page grant never covers a frame from another site. **Output:** child frames follow the top
+frame under `--- iframe f7 <url> ---` headers, with indices rewritten `[f7:N]`, inside the one
+`maxChars` budget. Frames that don't fit are counted in a trailing note. The rewrite can add a few
+characters per line beyond the budget. **Found on the way (T1 note):** text/section reads
+returned "Injection returned no result" on real pages. The cause was not frames.
+`juniorReadTextInPage` called a module-scope helper (`capWithNote` → `safeSlice`), which
+`executeScript({func})` does not serialize, so it threw a ReferenceError in the page. The helper
+is now inlined. `serialization.test.ts` rebuilds every in-page function from its source text to
+catch this class of bug. `plan.md` is unchanged: the post-M5 workplan freezes it unless a story
+says to update it. Affects: `lib/executors/frames.ts` (new), `restricted.ts` (moved out of
+`index.ts`), `index.ts`, `read-page.ts`, `protocol/actions.ts`, both tool catalogs.

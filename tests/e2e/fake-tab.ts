@@ -22,6 +22,29 @@ export interface FakePage {
   html: string;
   /** Runs after each load — wire per-page side effects (button handlers). */
   onShow?: (doc: Document) => void;
+  /** T5a: child frames, keyed to an `<iframe id>` in `html`. */
+  frames?: FakeFrame[];
+}
+
+/** One iframe document. A frame whose origin matches the page lives in the
+ * iframe's own contentWindow (so the parent can read it and `frameElement` is
+ * set, as in Chrome); any other origin gets a separate JSDOM realm the parent
+ * cannot reach. jsdom does not load iframe `src`, so `url` is what listFrames
+ * reports (Chrome's frame URL); a same-origin realm itself stays about:blank. */
+export interface FakeFrame {
+  /** The Chrome frameId this frame reports (0 is the top frame — never use it). */
+  frameId: number;
+  url: string;
+  iframeId: string;
+  html: string;
+  onShow?: (doc: Document) => void;
+}
+
+/** A frame as the harness's listFrames/executeScript seams see it. */
+export interface FakeFrameRealm {
+  frameId: number;
+  url: string;
+  window: Window;
 }
 
 // Bare globals the in-page code resolves dynamically. Node's OWN globals are
@@ -57,12 +80,12 @@ const FORCE_STAMP = new Set([
   "StorageEvent",
 ]);
 
-function stampGlobals(dom: JSDOM): void {
+function stampGlobals(win: Window): void {
   const g = globalThis as unknown as Record<string, unknown>;
-  for (const key of Object.getOwnPropertyNames(dom.window)) {
+  for (const key of Object.getOwnPropertyNames(win)) {
     if (NODE_OWN_GLOBALS.has(key) && !FORCE_STAMP.has(key)) continue;
     try {
-      g[key] = (dom.window as unknown as Record<string, unknown>)[key];
+      g[key] = (win as unknown as Record<string, unknown>)[key];
     } catch {
       // Accessor that throws on read (cross-origin guards) — nothing needs it.
     }
@@ -74,6 +97,7 @@ export class FakeTab {
   url: string;
   private dom: JSDOM;
   private pages = new Map<string, FakePage>();
+  private childFrames: FakeFrameRealm[] = [];
 
   constructor(initialUrl: string, initialPage: FakePage) {
     this.pages.set(initialUrl, initialPage);
@@ -108,28 +132,41 @@ export class FakeTab {
   /** Re-stamps this tab's window globals onto globalThis — the harness models
    * executeScript's per-tab injection by focusing the target tab's realm before
    * running the self-contained in-page functions (T1 multi-tab support). */
-  focus(): void {
-    stampGlobals(this.dom);
+  focus(frameId = 0): void {
+    stampGlobals(this.realm(frameId));
   }
 
-  /** Evaluates the REAL vendored buildDomTree into the active window, idempotent
+  /** Every frame of the current page, top first (frameId 0) — what
+   * executeScript({allFrames:true}) would visit. */
+  frames(): FakeFrameRealm[] {
+    const top = this.dom.window as unknown as Window;
+    return [{ frameId: 0, url: this.url, window: top }, ...this.childFrames];
+  }
+
+  /** The document of one frame (0 = top). */
+  frameDocument(frameId: number): Document {
+    return this.realm(frameId).document;
+  }
+
+  /** Evaluates the REAL vendored buildDomTree into the focused window, idempotent
    * per window — mirrors executeScript({files:["vendor/buildDomTree.js"]}). */
-  injectBuildDomTree(): void {
-    const w = this.dom.window as unknown as Record<string, unknown>;
+  injectBuildDomTree(frameId = 0): void {
+    const w = this.realm(frameId) as unknown as Record<string, unknown>;
     if (!w.buildDomTree) new Function(BUILD_DOM_TREE_SOURCE)();
+  }
+
+  /** Throws like executeScript does for a frameId the tab doesn't have. */
+  private realm(frameId: number): Window {
+    if (frameId === 0) return this.dom.window as unknown as Window;
+    const f = this.childFrames.find((c) => c.frameId === frameId);
+    if (!f) throw new Error(`No frame with id ${frameId} in tab.`);
+    return f.window;
   }
 
   private newDom(url: string): JSDOM {
     const dom = new JSDOM("<!doctype html><html><head></head><body></body></html>", { url });
-    stampGlobals(dom);
-    // Per-window layout stubs — a new window loses the previous ones.
-    dom.window.Element.prototype.scrollIntoView = () => {};
-    for (const prop of ["offsetWidth", "offsetHeight"] as const) {
-      Object.defineProperty(dom.window.HTMLElement.prototype, prop, {
-        get: () => 100,
-        configurable: true,
-      });
-    }
+    stampGlobals(dom.window as unknown as Window);
+    stubWindow(dom.window as unknown as Window);
     return dom;
   }
 
@@ -144,6 +181,43 @@ export class FakeTab {
     // Distinct y-stacked rects per element + an honest elementFromPoint scan
     // (the shared @junior/testkit/jsdom stub).
     stubStackedLayout(doc);
+    this.childFrames = (page.frames ?? []).map((f) => this.mountFrame(doc, f));
+    stampGlobals(this.dom.window as unknown as Window);
     page.onShow?.(doc);
+  }
+
+  private mountFrame(parent: Document, f: FakeFrame): FakeFrameRealm {
+    const iframe = parent.getElementById(f.iframeId) as HTMLIFrameElement | null;
+    if (!iframe) throw new Error(`FakeFrame: no <iframe id="${f.iframeId}"> in the page`);
+    let win: Window;
+    if (new URL(f.url).origin === new URL(this.url).origin && iframe.contentWindow) {
+      win = iframe.contentWindow;
+    } else {
+      win = new JSDOM("<!doctype html><html><head></head><body></body></html>", { url: f.url })
+        .window as unknown as Window;
+    }
+    stubWindow(win);
+    if (!win.document.body) {
+      // jsdom's initial about:blank frame document has no <body> yet.
+      win.document.open();
+      win.document.write("<!doctype html><html><head></head><body></body></html>");
+      win.document.close();
+    }
+    win.document.body.innerHTML = f.html;
+    stubStackedLayout(win.document);
+    f.onShow?.(win.document);
+    return { frameId: f.frameId, url: f.url, window: win };
+  }
+}
+
+/** Per-window layout stubs — every realm has its own prototypes. */
+function stubWindow(win: Window): void {
+  const w = win as unknown as typeof globalThis;
+  w.Element.prototype.scrollIntoView = () => {};
+  for (const prop of ["offsetWidth", "offsetHeight"] as const) {
+    Object.defineProperty(w.HTMLElement.prototype, prop, {
+      get: () => 100,
+      configurable: true,
+    });
   }
 }

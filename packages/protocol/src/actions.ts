@@ -4,6 +4,9 @@ import { z } from "zod";
 
 export const ReadMode = z.enum(["outline", "interactive", "text", "section"]);
 
+/** An iframe as read_page names it: `f<frameId>` (T5a). */
+export const FrameRef = z.string().regex(/^f\d{1,10}$/);
+
 export const BrowserActionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("navigate"), url: z.string().max(2048) }),
   z.object({ kind: z.literal("click"), target: z.string().max(512) }), // index / text / CSS / xpath
@@ -16,6 +19,8 @@ export const BrowserActionSchema = z.discriminatedUnion("kind", [
     kind: z.literal("scroll"),
     direction: z.enum(["up", "down"]),
     amount: z.number().int().optional(),
+    // T5a: scroll inside an iframe — the frame part of a read_page index ("f7").
+    frame: FrameRef.optional(),
   }),
   z.object({
     kind: z.literal("read_page"),

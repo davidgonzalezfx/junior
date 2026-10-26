@@ -34,13 +34,14 @@ import { AgentTabManager, withAgentTab, type AgentTabHost } from "@/lib/agent-ta
 import { executeAction, type ExecutorEnv } from "@/lib/executors";
 import { juniorActionInPage } from "@/lib/executors/in-page";
 import { juniorReadTextInPage } from "@/lib/executors/read-page";
+import { juniorFrameInfoInPage } from "@/lib/executors/frames";
 import { addSiteGrant, getSiteGrants, grantCovers } from "@/lib/site-grants";
 import { PANEL_PORT_NAME, PortRouter, type PortLike } from "@/lib/port-router";
 import { PanelApprovalBroker } from "@/lib/panel-approvals";
 import type { ApprovalAnswer, ApprovalAsk } from "@/lib/panel-approvals";
-import { FakeTab, type FakePage } from "./fake-tab";
+import { FakeTab, type FakeFrame, type FakePage } from "./fake-tab";
 
-export type { FakePage };
+export type { FakeFrame, FakePage };
 
 /** What a test may write in a dispatch — schema defaults (maxChars) stay optional. */
 export type DispatchAction = z.input<typeof BrowserActionSchema>;
@@ -203,18 +204,29 @@ export async function startHarness(opts: HarnessOptions): Promise<Harness> {
       if (!t) return null;
       return { id: userFocusedId, url: t.url, title: t.document.title, status: "complete" };
     },
-    async runInPage(tabId, args) {
-      tabsById.get(tabId)?.focus();
+    async runInPage(tabId, args, frameId) {
+      tabsById.get(tabId)?.focus(frameId);
       return await juniorActionInPage(args);
     },
-    async runReadInPage(tabId, args) {
-      tabsById.get(tabId)?.focus();
+    async runReadInPage(tabId, args, frameId) {
+      tabsById.get(tabId)?.focus(frameId);
       return await juniorReadTextInPage(args);
     },
-    async runBuildDomTree(tabId, args) {
+    async listFrames(tabId) {
+      // T5a: run the REAL frame probe in every realm, as executeScript({allFrames})
+      // would. A same-origin jsdom frame sits at about:blank, so the URL is the
+      // one the fixture declares (what Chrome would report).
       const t = tabsById.get(tabId);
-      t?.focus();
-      t?.injectBuildDomTree();
+      if (!t) return [];
+      return t.frames().map((f) => {
+        t.focus(f.frameId);
+        return { ...juniorFrameInfoInPage(), frameId: f.frameId, url: f.url };
+      });
+    },
+    async runBuildDomTree(tabId, args, frameId) {
+      const t = tabsById.get(tabId);
+      t?.focus(frameId);
+      t?.injectBuildDomTree(frameId);
       const w = globalThis as unknown as { window: { buildDomTree?: (a: unknown) => unknown } };
       const build = w.window.buildDomTree;
       if (typeof build !== "function") return null;

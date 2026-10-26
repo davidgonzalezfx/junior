@@ -9,14 +9,13 @@
 //   selector) / of a querySelector subtree, capped at maxChars.
 //
 // juniorReadTextInPage is SELF-CONTAINED by the same contract as juniorActionInPage
-// (executeScript serializes only the function body — no module-scope references),
-// which keeps it directly unit-testable against jsdom.
+// (executeScript serializes only the function body — no module-scope references;
+// serialization.test.ts rebuilds it from source to prove it), which keeps it
+// directly unit-testable against jsdom.
 //
 // The map cache invalidation contract: buildDomTree stamps
 // `window.__junior_dom_map_url = location.href` on every build; the resolver
 // (in-page.ts strategy 1) only trusts `__junior_dom_map` while that URL is current.
-
-import { safeSlice } from "@junior/protocol";
 
 export interface ReadTextRequest {
   mode: "text" | "section";
@@ -25,7 +24,9 @@ export interface ReadTextRequest {
 }
 
 export type ReadTextResponse =
-  { ok: true; text: string; url: string } | { ok: false; error: string };
+  | { ok: true; text: string; url: string }
+  /** `noMatch`: the selector matched nothing here (another frame may have it). */
+  | { ok: false; error: string; noMatch?: boolean };
 
 /** Args for the vendored buildDomTree.js compact modes. */
 export interface BuildDomTreeArgs {
@@ -36,20 +37,21 @@ export interface BuildDomTreeArgs {
 /** What ExecutorEnv.runBuildDomTree resolves to (compact-mode result of the vendored script). */
 export type BuildDomTreeResult = { text: string };
 
-const TRUNCATION_NOTE = " ... [truncated at %d chars — raise maxChars or read a narrower section]";
-
-function capWithNote(text: string, maxChars: number): string {
-  if (text.length <= maxChars) return text;
-  const note = TRUNCATION_NOTE.replace("%d", String(maxChars));
-  // safeSlice: never split a surrogate pair at the cut — a lone surrogate would
-  // serialize to invalid UTF-8 downstream.
-  return safeSlice(text, Math.max(0, maxChars - note.length)) + note;
-}
-
 export async function juniorReadTextInPage(args: ReadTextRequest): Promise<ReadTextResponse> {
   // jsdom (tests) has no innerText — textContent is the fallback everywhere.
   function textOf(el: Element): string {
     return (el as HTMLElement).innerText || el.textContent || "";
+  }
+
+  function capWithNote(text: string, max: number): string {
+    if (text.length <= max) return text;
+    const note = ` ... [truncated at ${max} chars — raise maxChars or read a narrower section]`;
+    // Never split a surrogate pair at the cut (same rule as protocol safeSlice) —
+    // a lone surrogate would serialize to invalid UTF-8 downstream.
+    let cut = text.slice(0, Math.max(0, max - note.length));
+    const last = cut.charCodeAt(cut.length - 1);
+    if (last >= 0xd800 && last <= 0xdbff) cut = cut.slice(0, -1);
+    return cut + note;
   }
 
   const maxChars = args.maxChars;
@@ -70,6 +72,7 @@ export async function juniorReadTextInPage(args: ReadTextRequest): Promise<ReadT
       return {
         ok: false,
         error: `No element matches selector: ${JSON.stringify(selector.slice(0, 80))}`,
+        noMatch: true,
       };
     }
   } else {

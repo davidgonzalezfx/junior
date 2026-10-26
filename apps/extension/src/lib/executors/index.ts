@@ -31,6 +31,18 @@ import {
   type ReadTextResponse,
 } from "./read-page";
 import { downscaleDataUrl } from "./screenshot";
+import {
+  frameRefId,
+  juniorFrameInfoInPage,
+  parseFrameTarget,
+  readPageFrames,
+  resolveFrame,
+  TOP_FRAME_ID,
+  type FrameInfo,
+} from "./frames";
+import { isRestrictedUrl, RESTRICTED_TEXT } from "./restricted";
+
+export { isRestrictedUrl };
 
 /** Matches ActionResultSchema minus the queue id (the SW loop owns the id). */
 export interface ExecuteOutcome {
@@ -57,12 +69,21 @@ export interface ExecutorEnv {
    * op reveals the target tab before capturing — optional; without it the
    * capture sees whatever the user has on screen. */
   revealTab?(tabId: number): Promise<void>;
-  runInPage(tabId: number, args: InPageRequest): Promise<InPageResponse>;
+  /** The in-page seams run in the tab's top frame, or in ONE child frame when
+   * `frameId` is given (T5a: executeScript `target.frameIds`). */
+  runInPage(tabId: number, args: InPageRequest, frameId?: number): Promise<InPageResponse>;
   /** text/section read_page — self-contained fn via executeScript({func}). */
-  runReadInPage(tabId: number, args: ReadTextRequest): Promise<ReadTextResponse>;
+  runReadInPage(tabId: number, args: ReadTextRequest, frameId?: number): Promise<ReadTextResponse>;
   /** outline/interactive read_page — injects public/vendor/buildDomTree.js and
    *  calls window.buildDomTree(args); null when injection/invocation failed. */
-  runBuildDomTree(tabId: number, args: BuildDomTreeArgs): Promise<BuildDomTreeResult | null>;
+  runBuildDomTree(
+    tabId: number,
+    args: BuildDomTreeArgs,
+    frameId?: number,
+  ): Promise<BuildDomTreeResult | null>;
+  /** T5a: every frame of the tab (executeScript allFrames — no webNavigation
+   * permission). Optional: without it reads and actions see the top frame only. */
+  listFrames?(tabId: number): Promise<FrameInfo[]>;
   captureVisibleTab(windowId?: number): Promise<string>;
   permissionMode(): Promise<PermissionMode>;
   blockedOrigins(): Promise<readonly string[]>;
@@ -85,25 +106,32 @@ export const defaultEnv: ExecutorEnv = {
   async revealTab(tabId) {
     await browser.tabs.update(tabId, { active: true });
   },
-  async runInPage(tabId, args) {
+  async runInPage(tabId, args, frameId) {
     const results = await browser.scripting.executeScript({
-      target: { tabId },
+      target: frameTarget(tabId, frameId),
       func: juniorActionInPage,
       args: [args],
     });
     const first = results[0];
     return first?.result ?? { ok: false as const, error: "Injection returned no result" };
   },
-  async runReadInPage(tabId, args) {
+  async runReadInPage(tabId, args, frameId) {
     const results = await browser.scripting.executeScript({
-      target: { tabId },
+      target: frameTarget(tabId, frameId),
       func: juniorReadTextInPage,
       args: [args],
     });
     const first = results[0];
     return first?.result ?? { ok: false as const, error: "Injection returned no result" };
   },
-  async runBuildDomTree(tabId, args) {
+  async listFrames(tabId) {
+    const results = await browser.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      func: juniorFrameInfoInPage,
+    });
+    return results.flatMap((r) => (r.result ? [{ ...r.result, frameId: r.frameId }] : []));
+  },
+  async runBuildDomTree(tabId, args, frameId) {
     // Autono pattern (background.js:3553): inject the vendored file, then invoke
     // window.buildDomTree with args (executeScript serializes only the body, so
     // the call goes through a tiny trampoline that reads it off the page window).
@@ -111,11 +139,11 @@ export const defaultEnv: ExecutorEnv = {
     // rejects the slash; WXT's generated ScriptPublicPath type wants one — same
     // types-vs-Chrome mismatch as captureVisibleTab's windowId, cast it).
     await browser.scripting.executeScript({
-      target: { tabId },
+      target: frameTarget(tabId, frameId),
       files: ["vendor/buildDomTree.js"] as unknown as ["/vendor/buildDomTree.js"],
     });
     const results = await browser.scripting.executeScript({
-      target: { tabId },
+      target: frameTarget(tabId, frameId),
       func: (a: BuildDomTreeArgs) => {
         const build = (
           window as unknown as {
@@ -155,6 +183,10 @@ export const defaultEnv: ExecutorEnv = {
   },
 };
 
+function frameTarget(tabId: number, frameId: number | undefined) {
+  return frameId === undefined ? { tabId } : { tabId, frameIds: [frameId] };
+}
+
 export interface ExecuteOptions {
   /** Approval path for "ask" verdicts. Default: deny (§6.3-3 — closed panel included). */
   ask?: AskFn;
@@ -163,33 +195,6 @@ export interface ExecuteOptions {
   granted?: (pageUrl: string) => Promise<boolean>;
 }
 
-// Port of Autono isRestrictedUrl (background.js:1751–1773): internal pages are
-// never automation targets.
-export function isRestrictedUrl(url: string | undefined): boolean {
-  if (!url) return true;
-  const lower = url.toLowerCase().trim();
-  if (lower === "") return true;
-  return (
-    lower.startsWith("chrome://") ||
-    lower.startsWith("chrome-extension://") ||
-    lower.startsWith("edge://") ||
-    lower.startsWith("about:") ||
-    lower.startsWith("view-source:") ||
-    lower.startsWith("devtools://") ||
-    lower.startsWith("chrome-untrusted://") ||
-    lower.startsWith("chrome-search://") ||
-    lower.startsWith("file:") ||
-    lower.startsWith("data:") ||
-    lower.startsWith("blob:") ||
-    lower.startsWith("javascript:") ||
-    lower.startsWith("filesystem:") ||
-    lower.startsWith("ftp:") ||
-    lower.includes("chrome.google.com/webstore") ||
-    lower.includes("chromewebstore.google.com")
-  );
-}
-
-const RESTRICTED_TEXT = "Action omitted: not permitted on internal Chrome pages";
 const MAX_SCREENSHOT_CHARS = 3_000_000; // §6.3-6: size-capped payloads everywhere
 
 function errorOutcome(error: string): ExecuteOutcome {
@@ -258,27 +263,7 @@ export async function executeAction(
     if (!tab?.id) return errorOutcome("No active browser tab to read");
     if (isRestrictedUrl(tab.url)) return errorOutcome(RESTRICTED_TEXT);
 
-    if (action.mode === "outline" || action.mode === "interactive") {
-      // Vendored buildDomTree.js caps the output in-page at maxChars (§6.3-6).
-      try {
-        const res = await env.runBuildDomTree(tab.id, {
-          mode: action.mode,
-          maxChars: action.maxChars,
-        });
-        if (!res) return errorOutcome("Could not read the page (reader injection failed)");
-        return { status: "ok", result: res.text };
-      } catch (e) {
-        return errorOutcome(`read_page failed: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    }
-
-    // text | section — capped in-page at maxChars (§6.3-6).
-    const res = await env.runReadInPage(tab.id, {
-      mode: action.mode,
-      selector: action.selector,
-      maxChars: action.maxChars,
-    });
-    return res.ok ? { status: "ok", result: res.text } : errorOutcome(res.error);
+    return await readPageFrames(env, tab.id, action);
   }
 
   // Remaining kinds (click/type/scroll) act on the active tab.
@@ -287,36 +272,64 @@ export async function executeAction(
   if (isRestrictedUrl(tab.url)) return errorOutcome(RESTRICTED_TEXT);
 
   if (action.kind === "scroll") {
-    const res = await env.runInPage(tab.id, {
-      op: "scroll",
-      direction: action.direction,
-      amount: action.amount,
-    });
+    let frameId: number | undefined;
+    if (action.frame && frameRefId(action.frame) !== TOP_FRAME_ID) {
+      const found = await resolveFrame(env, tab.id, frameRefId(action.frame));
+      if (!found.ok) return errorOutcome(found.error);
+      frameId = found.frame.frameId;
+    }
+    const res = await env.runInPage(
+      tab.id,
+      { op: "scroll", direction: action.direction, amount: action.amount },
+      ...(frameId === undefined ? [] : [frameId]),
+    );
     return res.ok ? { status: "ok", result: res.message } : errorOutcome(res.error);
   }
+
+  // T5a: `f7:<target>` runs in that child frame; anything else in the top frame.
+  let target = action.target;
+  let frameId: number | undefined;
+  let frameUrl: string | undefined;
+  const scoped = parseFrameTarget(action.target);
+  if (scoped) {
+    target = scoped.target;
+    if (scoped.frameId !== TOP_FRAME_ID) {
+      const found = await resolveFrame(env, tab.id, scoped.frameId);
+      if (!found.ok) return errorOutcome(found.error);
+      frameId = found.frame.frameId;
+      frameUrl = found.frame.url;
+    }
+  }
+  const inFrame: [] | [number] = frameId === undefined ? [] : [frameId];
 
   // click / type: probe-before-act (§5.2 item 3) — real facts first, guard verdict,
   // then act with an expect-check so the element can't change under the card.
   const mode = action.kind === "click" ? "click" : "type";
   const text = action.kind === "type" ? action.text : undefined;
-  const probe = await env.runInPage(tab.id, { op: "probe", mode, target: action.target });
+  const probe = await env.runInPage(tab.id, { op: "probe", mode, target }, ...inFrame);
   if (!probe.ok) return errorOutcome(probe.error);
 
-  const verdict: PreActCheck =
+  // Inside a frame the guard judges BOTH sites — the page the user sees and the
+  // frame the action lands in — and the stricter verdict wins.
+  const permissionMode = await env.permissionMode();
+  const checkAt = async (pageUrl: string): Promise<PreActCheck> =>
     mode === "click"
       ? checkClickFacts({
-          mode: await env.permissionMode(),
-          pageUrl: tab.url ?? "",
+          mode: permissionMode,
+          pageUrl,
           facts: probe.facts as InPageClickFacts,
-          granted: await opts.granted?.(tab.url ?? ""),
+          granted: await opts.granted?.(pageUrl),
         })
       : checkTypeFacts({
-          mode: await env.permissionMode(),
-          pageUrl: tab.url ?? "",
+          mode: permissionMode,
+          pageUrl,
           facts: probe.facts as InPageFieldFacts,
           text: text ?? "",
-          granted: await opts.granted?.(tab.url ?? ""),
+          granted: await opts.granted?.(pageUrl),
         });
+  const verdicts = [await checkAt(tab.url ?? "")];
+  if (frameUrl !== undefined) verdicts.push(await checkAt(frameUrl));
+  const verdict = strictest(verdicts);
 
   if (verdict.verdict === "deny") return { status: "denied", error: verdict.error };
   if (verdict.verdict === "ask") {
@@ -326,13 +339,15 @@ export async function executeAction(
 
   const act: InPageRequest =
     mode === "click"
-      ? { op: "click", target: action.target, expect: probe.facts as InPageClickFacts }
-      : {
-          op: "type",
-          target: action.target,
-          text: text ?? "",
-          expect: probe.facts as InPageFieldFacts,
-        };
-  const res = await env.runInPage(tab.id, act);
+      ? { op: "click", target, expect: probe.facts as InPageClickFacts }
+      : { op: "type", target, text: text ?? "", expect: probe.facts as InPageFieldFacts };
+  const res = await env.runInPage(tab.id, act, ...inFrame);
   return res.ok ? { status: "ok", result: res.message } : errorOutcome(res.error);
+}
+
+/** deny beats ask beats allow; among asks the LAST one (the frame's) is shown. */
+function strictest(verdicts: PreActCheck[]): PreActCheck {
+  const deny = verdicts.find((v) => v.verdict === "deny");
+  if (deny) return deny;
+  return verdicts.filter((v) => v.verdict === "ask").at(-1) ?? { verdict: "allow" };
 }

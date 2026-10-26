@@ -123,7 +123,7 @@ export function registerMcpTools(server: McpServer, deps: McpToolDeps): void {
     "read_page",
     {
       description:
-        "Read the active page token-efficiently: outline (interactive elements as [index] lines), interactive (with roles/values), text, or a section via CSS selector. Prefer this over screenshots.",
+        'Read the active page token-efficiently: outline (interactive elements as [index] lines), interactive (with roles/values), text, or a section via CSS selector. Content inside cross-origin iframes (embedded video players, payment or sign-in widgets) follows a `--- iframe f7 <url> ---` header with frame-qualified indices like [f7:3]; a section selector can be scoped to a frame the same way ("f7:#player"). Prefer this over screenshots.',
       inputSchema: z.object({
         mode: ReadMode.default("outline"),
         selector: z.string().max(512).optional(),
@@ -153,7 +153,7 @@ export function registerMcpTools(server: McpServer, deps: McpToolDeps): void {
     "click",
     {
       description:
-        'Click an element on the active page. Target is an index from read_page output ("[12]" → "12"), visible text, a CSS selector, or an XPath.',
+        'Click an element on the active page. Target is an index exactly as read_page printed it ("[12]" → "12"; inside an iframe "[f7:3]" → "f7:3"), visible text, a CSS selector, or an XPath. Prefix text/CSS/XPath with the frame ("f7:Play") to search inside that iframe; unprefixed targets search the top page.',
       inputSchema: z.object({ target: z.string().max(512) }),
     },
     async (args) => dispatchTool(deps.dispatcher, { kind: "click", target: args.target }),
@@ -163,7 +163,7 @@ export function registerMcpTools(server: McpServer, deps: McpToolDeps): void {
     "type",
     {
       description:
-        "Type text into a field on the active page (same target forms as click). Secret/password fields are refused in every mode — the agent is never given secret material.",
+        'Type text into a field on the active page (same target forms as click, including frame-qualified "f7:3" / "f7:Email"). Secret/password fields are refused in every mode — the agent is never given secret material.',
       inputSchema: z.object({
         target: z.string().max(512),
         text: z.string().max(10000),

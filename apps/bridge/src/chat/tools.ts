@@ -6,7 +6,7 @@
 // BLOCKED_BY_POLICY:/…) ride through verbatim so the model learns not to retry.
 import { tool, type Tool, type ToolSet } from "ai";
 import { z } from "zod";
-import { ReadMode } from "@junior/protocol";
+import { FrameRef, ReadMode } from "@junior/protocol";
 import type { Dispatcher } from "../dispatcher/queue.js";
 import { MAX_SCREENSHOT_TEXT_CHARS, MAX_TOOL_TEXT_CHARS, toolResultText } from "../mcp/tools.js";
 
@@ -39,7 +39,7 @@ export function browserTools(deps: BrowserToolDeps): ToolSet {
     }),
     read_page: tool({
       description:
-        "Read the active page token-efficiently: outline (interactive elements as [index] lines), interactive (with roles/values), text, or a section via CSS selector. Prefer this over screenshots and before clicking or typing.",
+        'Read the active page token-efficiently: outline (interactive elements as [index] lines), interactive (with roles/values), text, or a section via CSS selector. Content inside cross-origin iframes (embedded video players, payment or sign-in widgets) follows a `--- iframe f7 <url> ---` header with frame-qualified indices like [f7:3]; a section selector can be scoped to a frame the same way ("f7:#player"). Prefer this over screenshots and before clicking or typing.',
       inputSchema: z.object({
         mode: ReadMode.default("outline"),
         selector: z.string().max(512).optional(),
@@ -56,13 +56,13 @@ export function browserTools(deps: BrowserToolDeps): ToolSet {
     }),
     click: tool({
       description:
-        'Click an element on the active page. Target is an index from read_page output ("[12]" → "12"), visible text, a CSS selector, or an XPath.',
+        'Click an element on the active page. Target is an index exactly as read_page printed it ("[12]" → "12"; inside an iframe "[f7:3]" → "f7:3"), visible text, a CSS selector, or an XPath. Prefix text/CSS/XPath with the frame ("f7:Play") to search inside that iframe; unprefixed targets search the top page.',
       inputSchema: z.object({ target: z.string().max(512) }),
       execute: async ({ target }) => runTool(d, { kind: "click", target }),
     }),
     type: tool({
       description:
-        "Type text into a field on the active page (same target forms as click). Secret/password fields are refused in every mode — never ask the user for secret material to type.",
+        'Type text into a field on the active page (same target forms as click, including frame-qualified "f7:3" / "f7:Email"). Secret/password fields are refused in every mode — never ask the user for secret material to type.',
       inputSchema: z.object({
         target: z.string().max(512),
         text: z.string().max(10000),
@@ -70,12 +70,15 @@ export function browserTools(deps: BrowserToolDeps): ToolSet {
       execute: async ({ target, text }) => runTool(d, { kind: "type", target, text }),
     }),
     scroll: tool({
-      description: "Scroll the active page up or down by a pixel amount (default 600).",
+      description:
+        'Scroll the active page up or down by a pixel amount (default 600). Pass frame ("f7", from a read_page iframe header) to scroll inside that iframe instead.',
       inputSchema: z.object({
         direction: z.enum(["up", "down"]),
         amount: z.number().int().positive().max(10000).optional(),
+        frame: FrameRef.optional(),
       }),
-      execute: async ({ direction, amount }) => runTool(d, { kind: "scroll", direction, amount }),
+      execute: async ({ direction, amount, frame }) =>
+        runTool(d, { kind: "scroll", direction, amount, frame }),
     }),
     screenshot: tool({
       description:
