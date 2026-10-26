@@ -140,7 +140,14 @@
   - Files: `apps/extension/src/entrypoints/background.ts`, `lib/agent-loop.ts`,
     `lib/executors/*` (they take tabId today — verify), `lib/port-router.ts`, manifest
     (`tabGroups` permission), protocol if the action schema needs an explicit tabId field.
-- [ ] **T1b — One agent tab group, not two** *(user-reported 2026-10-26, T1 regression)*
+- [x] **T1b — One agent tab group, not two** *(user-reported 2026-10-26, T1 regression)*
+  **DONE 2026-10-26 (commit ea7658c):** real concurrent callers = `AgentLoop.handleItem` →
+  `onStatus("working")` → `void syncOverlay()` → `agentEnv.getActiveTab()`, immediately followed by
+  `execute` → `executeAction` → `env.getActiveTab()`. `AgentTabManager.resolve()` is now
+  single-flight (one shared promise, cleared on settle incl. rejection); `defaultAgentTabHost.create()`
+  joins an existing "Junior" group (tab created in that group's window) instead of making a second.
+  Fail-first: 2/3 concurrent resolves → 1 create (red: 2 creates) and create-joins-group (red: 2
+  groups), both green post-fix; + no-wedge-after-rejection test.
   - Starting agent mode opens TWO "Junior" tab groups. `AgentTabManager.resolve()`
     (`apps/extension/src/lib/agent-tab.ts` ~46) has no single-flight guard: concurrent callers at task
     start (likely the overlay and the first action) both miss the remembered tab and both create one.
@@ -410,3 +417,7 @@ U…                       (optional)
   T1 text/section "Injection returned no result" = non-serialized helper, fixed · fail-first
   e2e red 7/8 → green 8/8, serialization red 1/3 → 3/3, +24 units; gates green (167 protocol +
   247 bridge + 356 ext + 25 tests incl. 2 gated skip + 5 spikes + 6 testkit) · 740014b
+- 2026-10-26 — T1b done · one "Junior" group, not two (single-flight resolve — overlay sync and the
+  first action raced; create joins an existing Junior group) · fail-first red 2/11 → green 11/11;
+  gates green (167 protocol + 247 bridge + 359 ext + 25 tests incl. 2 gated skip + 5 spikes +
+  6 testkit) · ea7658c
