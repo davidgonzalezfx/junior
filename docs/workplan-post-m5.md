@@ -28,6 +28,11 @@
   flake" stories, "director's constraints", "Junior delta vs Autono" bookkeeping). Keep
   invariants, gotchas, and why-explanations. Vendored files keep their attribution headers
   (CLAUDE.md rule — never strip those).
+- **Bridge restarts:** any story that changes `apps/bridge` or `packages/protocol` must say so in
+  its report, and the user's Chrome checklist must start with "rebuild done; restart the bridge
+  (`junior:2.0`)". A running bridge keeps serving the old tool catalog until restarted (the first
+  T5b retest ran a new extension against a 16:04 bridge without the `media` tool). Terminal-Claude
+  MCP clients also cache the tool list per session: restart them to see new tools.
 - **Don't touch:** `docs/qa.md` (frozen record), `plan.md` except where a story says to update it,
   `review.md` (evidence reference).
 - **Reply back to the director (worker → tmux pane `%1`, currently `junior:0.2`).** As the LAST action of a story, after
@@ -154,6 +159,16 @@
     Fix: share one in-flight promise per resolve, and make `create()` join an existing "Junior" group
     instead of always making a new one. Fail-first test: two concurrent `resolve()` calls yield ONE
     created tab and ONE group.
+
+- [ ] **T1c — Dedicated agent window** *(user decision 2026-10-26, from the Udemy retest)*
+  - Udemy's player defers loading until its document is visible. The T1 agent tab lives in a tab
+    group in the user's window, so it is `visibilityState: "hidden"` whenever the user looks at
+    another tab. Move the agent tab into its own normal Chrome window where it is the active tab
+    (keep the "Junior" group inside that window for labeling). Reuse the window across tasks,
+    recreate it if closed, never steal focus from the user's window at creation (`focused: false`),
+    and keep T1/T1b invariants (one tab, single-flight, user tabs untouched). Screenshot no longer
+    needs to activate a tab in the user's window. Note in the report: an occluded window can still
+    be reported hidden on some OSes.
 
 - [x] **T2 — CLI stdout line-buffering** *(R§3.1)*
   **DONE 2026-10-26 (commit fcc8e23):** `runCliTurn` holds the trailing partial line until its
@@ -358,7 +373,7 @@
 T1                       (privacy leak — approved to jump the queue)
 C1 → C2 → C3             (cleanup)
 T2 → T3 → T4 → T6        (correctness)
-T7 → T5a → T1b → T5b     (screenshot first — it is the debugging tool for T5)
+T7 → T5a → T1b → T5b → T1c   (screenshot first — it is the debugging tool for T5)
 F1 → F2 → F3             (user features)
 H1 → H2 → H3             (hardening)
 U…                       (optional)
