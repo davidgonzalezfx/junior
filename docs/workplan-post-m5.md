@@ -182,7 +182,14 @@
     screenshot path end-to-end (`executors/` → `captureVisibleTab` → dataURL transport), write a
     fail-first test at the seam that actually breaks, fix, and verify against a real page.
   - Order note: T7 before T5 — screenshots are also the debugging tool for T5's player work.
-- [ ] **T6 — SessionStore single-writer repair** *(R§4.8)*
+- [x] **T6 — SessionStore single-writer repair** *(R§4.8)* **DONE 2026-10-26 (commit e7301f6):**
+  `SessionStore` moves to `lib/session-store.ts` (history.ts 378→302) and is the panel's only
+  writer: `rename`/`delete`/`list` serialize behind in-flight flushes; delete purges pending +
+  tombstones the id; App detaches a deleted active chat onto a fresh one; 2 s max-latency cap
+  beside the 500 ms debounce; write-on-hide unchanged. R§6.5 reorder-on-view taken here
+  (`snapshotFor` skips records of the session's own messages). Found + fixed in the same path:
+  History→Back re-seeded ChatPanel from stale `session` state and re-recorded the older
+  transcript over the newer one. Schema/keys unchanged, no migration.
   - Rename lost (`App.tsx:102-110` bypasses the store), deleted-active-session resurrection
     (`history-panel.tsx:180`), debounce starvation during long streams (`history.ts:349-352` +
     `chat-panel.tsx:152-154`). Fix: route rename/delete through the store (delete purges pending
@@ -301,3 +308,9 @@ U…                       (optional)
 - 2026-10-26 — T4 real-Chrome verify by the user: 5/5 green (deny after SW Stop → USER_DENIED; lapsed
   card after SW Stop → denied with the restart reason; pause survives + resumes; no ghost cards;
   panel close still denies immediately).
+- 2026-10-26 — T6 done · SessionStore single writer (rename/delete/list via store, delete
+  tombstones + detaches active, 2 s latency cap) + R§6.5 no re-record on view + stale
+  History→Back re-seed · fail-first red 11/14 (store 7/9 via a shim mirroring today's direct
+  writes; App wiring 4/5 on unmodified App.tsx) → green 17/17 (+3 snapshotFor units) + real-
+  ChatPanel seed-identity check; gates green (167 protocol + 247 bridge + 326 ext + 17 tests
+  incl. 2 gated skip + 5 spikes + 6 testkit) · e7301f6
