@@ -298,3 +298,6 @@ U…                       (optional)
   suspension e2e red 4/4 → green 4/4 (deny-after-wake, alarm-denies-lapsed card, pause survives,
   exact live set on reconnect) + 18 unit tests; gates green (167 protocol + 247 bridge + 308 ext +
   17 tests incl. 2 gated skip + 5 spikes + 6 testkit) · a0503ef, d000182
+- 2026-10-26 — T4 real-Chrome verify by the user: 5/5 green (deny after SW Stop → USER_DENIED; lapsed
+  card after SW Stop → denied with the restart reason; pause survives + resumes; no ghost cards;
+  panel close still denies immediately).
