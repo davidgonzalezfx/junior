@@ -35,6 +35,17 @@ export function useApprovalCards(): AgentChannelState {
     let closed = false;
     let retry: ReturnType<typeof setTimeout> | undefined;
     let port: ReturnType<typeof browser.runtime.connect> | null = null;
+    // Answers given while the port is down (the SW was suspended and the
+    // reconnect is a beat away) go out on the next port instead of throwing.
+    const outbox: ApprovalResponseMessage[] = [];
+    const send = (msg: ApprovalResponseMessage) => {
+      try {
+        if (!port) throw new Error("no port");
+        port.postMessage(msg);
+      } catch {
+        outbox.push(msg);
+      }
+    };
 
     const connect = () => {
       if (closed) return;
@@ -51,18 +62,16 @@ export function useApprovalCards(): AgentChannelState {
       });
       // SW restarted or dropped the port — reconnect after a beat.
       port.onDisconnect.addListener(() => {
+        port = null;
         if (!closed) retry = setTimeout(connect, 1000);
       });
+      for (const msg of outbox.splice(0)) send(msg);
     };
 
     connect();
     respondRef.current = (id, decision) => {
       setCardsById((prev) => removeCard(prev, id)); // don't wait for approval_resolved — the click already decided
-      port?.postMessage({
-        type: "approval_response",
-        id,
-        decision,
-      } satisfies ApprovalResponseMessage);
+      send({ type: "approval_response", id, decision });
     };
     return () => {
       closed = true;

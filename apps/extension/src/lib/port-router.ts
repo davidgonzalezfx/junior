@@ -37,6 +37,14 @@ export interface ApprovalResolvedMessage {
   by: "decision" | "timeout" | "no-panel";
 }
 
+/** SW → panel — the SW's true pending-card set, sent on every (re)connect. The
+ * panel REPLACES its cards with it: a card the SW no longer knows (raised by a
+ * suspended SW, resolved while the port was down) is a ghost and goes away. */
+export interface ApprovalSyncMessage {
+  type: "approval_sync";
+  cards: { id: string; approval: ApprovalRequest; remainingMs: number }[];
+}
+
 /** SW → panel — coarse agent activity indicator (the panel chip + the page
  * overlay mirror the same state, §5.2 item 6). */
 export interface TaskStatusMessage {
@@ -53,7 +61,11 @@ export interface ApprovalResponseMessage {
 }
 
 export type PanelOutboundMessage =
-  InitStateMessage | ApprovalRequestMessage | ApprovalResolvedMessage | TaskStatusMessage;
+  | InitStateMessage
+  | ApprovalRequestMessage
+  | ApprovalResolvedMessage
+  | ApprovalSyncMessage
+  | TaskStatusMessage;
 
 export type PanelInboundMessage = ApprovalResponseMessage;
 

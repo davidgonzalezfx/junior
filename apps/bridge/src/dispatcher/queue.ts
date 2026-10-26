@@ -129,7 +129,7 @@ export class Dispatcher {
       if (decision === null) return { id, status: "denied", error: approvalDenial("timeout") };
       this.guard?.onApprovalDecision?.(action, decision);
       if (decision.decision === "deny") {
-        return { id, status: "denied", error: approvalDenial("user") };
+        return { id, status: "denied", error: approvalDenial(decision.reason ?? "user") };
       }
     }
 

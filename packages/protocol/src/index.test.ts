@@ -92,6 +92,18 @@ describe("ApprovalRequestSchema + ApprovalDecisionSchema (plan §3)", () => {
     }
     expect(() => ApprovalDecisionSchema.parse({ id: "abcdefgh", decision: "always" })).toThrow();
   });
+
+  it("carries an optional structured deny reason", () => {
+    expect(
+      ApprovalDecisionSchema.parse({ id: "abcdefgh", decision: "deny", reason: "timeout" }),
+    ).toMatchObject({ reason: "timeout" });
+    expect(
+      ApprovalDecisionSchema.parse({ id: "abcdefgh", decision: "deny" }).reason,
+    ).toBeUndefined();
+    expect(() =>
+      ApprovalDecisionSchema.parse({ id: "abcdefgh", decision: "deny", reason: "bored" }),
+    ).toThrow();
+  });
 });
 
 describe("QueueItemSchema + ActionResultSchema (plan §3)", () => {

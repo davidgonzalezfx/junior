@@ -2,7 +2,7 @@
 // SW → panel port messages (use-approval-cards holds the React state; tests
 // replay the same messages through the same function). Deadlines are DISPLAY:
 // the SW broker's timer is authoritative and approval_resolved removes the card.
-import type { ApprovalRequestMessage } from "./port-router";
+import type { ApprovalRequestMessage, ApprovalSyncMessage } from "./port-router";
 
 export interface PendingCard {
   id: string;
@@ -26,6 +26,19 @@ export function reduceCards(prev: CardMap, msg: unknown, now: number): CardMap {
       deadline: now + req.remainingMs,
       totalMs: req.remainingMs,
     });
+  }
+  if (m.type === "approval_sync") {
+    // The SW's true set replaces ours wholesale — anything else is a ghost.
+    const next = new Map<string, PendingCard>();
+    for (const card of (msg as ApprovalSyncMessage).cards) {
+      next.set(card.id, {
+        id: card.id,
+        approval: card.approval,
+        deadline: now + card.remainingMs,
+        totalMs: prev.get(card.id)?.totalMs ?? card.remainingMs,
+      });
+    }
+    return next;
   }
   if (m.type === "approval_resolved" && typeof m.id === "string") return removeCard(prev, m.id);
   return prev;

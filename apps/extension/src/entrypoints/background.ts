@@ -85,6 +85,12 @@ export default defineBackground(() => {
 
   browser.runtime.onConnect.addListener((port) => runtime.connect(port));
 
+  // Card deadlines (lib/approval-ledger.ts): the alarm may be what woke this SW.
+  // Registered synchronously at top level so Chrome delivers the waking event.
+  browser.alarms.onAlarm.addListener((alarm) => {
+    void runtime.handleAlarm(alarm);
+  });
+
   // Content-script one-shot messages (overlay_action / content_ready) — the
   // controller applies the port-router firewall before acting.
   browser.runtime.onMessage.addListener((msg: unknown, sender) => {

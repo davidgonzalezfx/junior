@@ -42,6 +42,9 @@ export type ApprovalRequest = z.infer<typeof ApprovalRequestSchema>;
 export const ApprovalDecisionSchema = z.object({
   id: z.string(),
   decision: z.enum(["once", "site", "deny"]),
+  /** Why a "deny" happened — the bridge picks its structured denial text from it.
+   * Absent = the user's own Deny (older extensions never send it). */
+  reason: z.enum(["user", "timeout", "no-panel"]).optional(),
 });
 
 export type ApprovalDecision = z.infer<typeof ApprovalDecisionSchema>;

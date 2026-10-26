@@ -91,7 +91,7 @@ describe("AgentLoop", () => {
   it("action item → execute → POST action-result with the queue id", async () => {
     const { loop, deps } = makeHarness([actionItem()]);
     await vi.waitFor(() => expect(deps.resultsMock).toHaveBeenCalledTimes(1));
-    expect(deps.executeMock).toHaveBeenCalledWith({ kind: "get_active_tab" });
+    expect(deps.executeMock).toHaveBeenCalledWith({ kind: "get_active_tab" }, "action-1");
     expect(deps.resultsMock).toHaveBeenCalledWith({ id: "action-1", status: "ok", result: "done" });
     expect(deps.onStatus).toHaveBeenCalledWith("working", "get_active_tab ");
     expect(deps.onStatus).toHaveBeenLastCalledWith("idle");
@@ -113,7 +113,10 @@ describe("AgentLoop", () => {
   it("approval item → card with the queue latency deducted, answer POSTed", async () => {
     const { loop, deps } = makeHarness([approvalItem()]);
     await vi.waitFor(() => expect(deps.decisionsMock).toHaveBeenCalledTimes(1));
-    expect(deps.askRequest).toHaveBeenCalledWith(APPROVAL, 120_000 - 4_000);
+    expect(deps.askRequest).toHaveBeenCalledWith(APPROVAL, 120_000 - 4_000, {
+      kind: "wire",
+      approvalId: "approval-1",
+    });
     expect(deps.decisionsMock).toHaveBeenCalledWith({ id: "approval-1", decision: "once" });
     loop.stop();
   });
@@ -123,7 +126,10 @@ describe("AgentLoop", () => {
       approvalItem({ createdAt: 0, timeoutMs: 2_000 }), // already stale
     ]);
     await vi.waitFor(() => expect(deps.decisionsMock).toHaveBeenCalledTimes(1));
-    expect(deps.askRequest).toHaveBeenCalledWith(APPROVAL, 1_000);
+    expect(deps.askRequest).toHaveBeenCalledWith(APPROVAL, 1_000, {
+      kind: "wire",
+      approvalId: "approval-1",
+    });
     loop.stop();
   });
 

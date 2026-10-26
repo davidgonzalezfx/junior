@@ -453,3 +453,41 @@ screenshot op now reveals the agent tab (`tabs.update {active:true}`, no window 
 captures by that tab's `windowId` — the user's page can never leak into an agent screenshot. Affects:
 `apps/extension/src/lib/agent-tab.ts` (new), `executors/index.ts`, `entrypoints/background.ts`,
 `wxt.config.ts` (`tabGroups` permission), harness (`tests/e2e/`).
+
+## 2026-10-26 · Pending cards + pause survive MV3 suspension: storage.session ledger + deadline alarms (T4)
+
+Context (review.md §3.3 + §4.1): while a card is pending (no long-poll in flight) or the loop is
+paused (polling stopped), Chrome suspends the idle SW ~30 s in; the broker's pending Map + 120 s
+`setTimeout` and the loop's `paused` flag die. A panel Deny posted to the fresh SW was dropped,
+the old card lingered as a ghost, and a paused agent silently resumed. **Storage:** options were
+`storage.local` (the workplan's wording) or `storage.session`. Choice: **session**. It is in-memory
+for as long as the extension is loaded, so it survives SW termination, and Chrome clears it on
+browser restart, extension reload/update and disable. That is exactly the lifetime of the facts
+stored: the bridge futures a card answers and the task a pause froze are gone after a restart, and
+a fresh browser must not boot paused or replay cards. It is also TRUSTED_CONTEXTS by default
+(content scripts cannot read card contents) and 10 MB. One key per card
+(`junior_pending_approval:<id>`: id, approval, createdAt, deadline, origin) avoids
+read-modify-write races between cards, and `junior_paused` holds the pause. **Alarms:** one one-shot
+`chrome.alarms` alarm per card (`junior_approval:<id>`, `when`). Per the current Chrome docs a packed
+extension's alarm never fires sooner than 30 s after it is set (unpacked has no floor), so the alarm
+is armed at `max(deadline, now + 30 s)`. A card whose deadline falls inside that floor is already
+expired when the alarm fires and is denied then. An alarm that fires before the deadline re-arms.
+While the SW lives, the precise in-memory timer still fires first. Every SW start re-arms the alarms
+of the cards it adopts, because the docs warn that alarm persistence can be unpredictable. **Wake
+(`createAgentRuntime().ready`, before the first poll):** pause is restored. Expired wire cards are
+denied to the bridge with `ApprovalDecision.reason: "timeout"` (a new optional protocol field, so the
+bridge answers `BLOCKED_BY_POLICY: approval not answered…` and not a fake `USER_DENIED`). Live wire
+cards are adopted with their original deadline, and their answer goes straight to the bridge.
+Guard-mirror cards are always denied at wake (`postResult` denied, `SW_RESTART_DENIAL`), because the
+execution that raised them died with the SW and cannot resume. Panel answers that arrive before
+recovery queue behind it. Every (re)connect sends `approval_sync`, the true card set, which the
+panel uses to replace its cards wholesale (no ghosts). Answers clicked while the port is down go to
+an outbox. M5-9's last-disconnect deny-all is unchanged. **Deviation found on the way:** the
+overlay hid on every `idle`, even while paused. A pause therefore usually left no visible Resume
+button, and the panel chip read "idle" after the in-flight action finished. Rule now: the overlay
+is visible ⇔ working ∨ awaiting approval ∨ paused, and a finished action reports "paused" while
+paused. A woken SW with no panel keeps adopted cards until their alarm (≤ 120 s). It does not deny
+them at once, because an open panel reconnects within ~1 s. Affects: `lib/approval-ledger.ts`
+(new), `lib/panel-approvals.ts`, `lib/agent-runtime.ts` (new, extracted from `background.ts`),
+`lib/agent-loop.ts`, `lib/approval-cards.ts` (new reducer), `hooks/use-approval-cards.ts`,
+`protocol/approval.ts`, `bridge/dispatcher/queue.ts`.

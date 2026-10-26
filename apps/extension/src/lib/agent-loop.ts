@@ -7,6 +7,7 @@
 import type { ApprovalDecision, ApprovalRequest, BrowserAction, QueueItem } from "@junior/protocol";
 import { registrableDomain } from "@junior/protocol";
 import { nextDelayMs } from "./bridge-client";
+import type { ApprovalOrigin } from "./approval-ledger";
 import type { ApprovalAnswer, ApprovalAsk } from "./panel-approvals";
 import type { ExecuteOutcome } from "./executors";
 
@@ -18,7 +19,9 @@ export interface AgentLoopDeps {
   poll(timeoutMs: number): Promise<QueueItem | null>;
   postResult(result: { id: string } & ExecuteOutcome): Promise<void>;
   postDecision(decision: ApprovalDecision): Promise<void>;
-  execute(action: BrowserAction): Promise<ExecuteOutcome>;
+  /** `itemId` is the bridge action id — the address of a mirror card's answer
+   * if this SW dies while the card is up. */
+  execute(action: BrowserAction, itemId: string): Promise<ExecuteOutcome>;
   /** Raises a card in the panel; resolves with the user's answer or "deny". */
   ask: ApprovalAsk;
   onStatus?(state: "idle" | "working" | "awaiting_approval", detail?: string): void;
@@ -131,7 +134,7 @@ export class AgentLoop {
     this.deps.onStatus?.("working", `${item.action.kind} ${actionTargetOf(item.action)}`);
     let outcome: ExecuteOutcome;
     try {
-      outcome = await this.deps.execute(item.action);
+      outcome = await this.deps.execute(item.action, item.id);
     } catch (e) {
       outcome = { status: "error", error: e instanceof Error ? e.message : String(e) };
     }
@@ -153,7 +156,10 @@ export class AgentLoop {
     // Queue latency counts against the card's window; keep ≥ 1 s for the user.
     const remainingMs = Math.max(1_000, timeoutMs - (now() - createdAt));
     this.deps.onStatus?.("awaiting_approval");
-    const answer = await this.deps.ask.request(approval, remainingMs);
+    const answer = await this.deps.ask.request(approval, remainingMs, {
+      kind: "wire",
+      approvalId: id,
+    });
     try {
       await this.deps.postDecision({ id, decision: answer });
     } catch {
@@ -176,9 +182,10 @@ export const APPROVAL_WINDOW_MS = 120_000;
 export function mirrorAsk(
   ask: ApprovalAsk,
   onGrantSite: (domain: string) => Promise<void>,
+  origin?: ApprovalOrigin,
 ): (approval: ApprovalRequest) => Promise<ApprovalAnswer> {
   return async (approval) => {
-    const answer = await ask.request(approval, APPROVAL_WINDOW_MS);
+    const answer = await ask.request(approval, APPROVAL_WINDOW_MS, origin);
     if (answer === "site") {
       const domain =
         approval.siteDomain ??

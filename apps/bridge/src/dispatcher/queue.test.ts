@@ -162,6 +162,20 @@ describe("Dispatcher — approvals on the queue (§4.3)", () => {
     await expect(d.nextAction(20)).resolves.toBeNull(); // nothing queued behind the card
   });
 
+  it("a deny carrying a reason picks that structured denial (SW-suspension recovery)", async () => {
+    for (const reason of ["timeout", "no-panel", "user"] as const) {
+      const d = connectedDispatcher({ guard: approvingGuard() });
+      const pending = d.dispatch(nav);
+      const card = await d.nextAction(1_000);
+      if (card?.kind !== "approval") throw new Error("expected an approval item");
+      d.resolveApproval({ id: card.id, decision: "deny", reason });
+      await expect(pending).resolves.toMatchObject({
+        status: "denied",
+        error: approvalDenial(reason),
+      });
+    }
+  });
+
   it("unanswered card → default-deny after the approval window", async () => {
     const guard = approvingGuard();
     const d = connectedDispatcher({ guard, approvalTimeoutMs: 30 });
