@@ -6,26 +6,12 @@
 // (textContent fallback inside the resolver).
 /** @vitest-environment jsdom */
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { makeVisible, stubJsdomElementBasics } from "@junior/testkit/jsdom";
 import { juniorActionInPage, type InPageClickFacts, type InPageFieldFacts } from "./in-page";
 
 beforeAll(() => {
-  Element.prototype.scrollIntoView = () => {};
+  stubJsdomElementBasics();
 });
-
-function makeVisible(el: Element): void {
-  el.getBoundingClientRect = () =>
-    ({
-      width: 100,
-      height: 20,
-      top: 0,
-      left: 0,
-      right: 100,
-      bottom: 20,
-      x: 0,
-      y: 0,
-      toJSON: () => ({}),
-    }) as DOMRect;
-}
 
 function setBody(html: string): void {
   document.body.innerHTML = html;

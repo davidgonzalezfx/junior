@@ -230,6 +230,9 @@ importers:
       '@junior/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@junior/testkit':
+        specifier: workspace:*
+        version: link:../../packages/testkit
       '@radix-ui/react-slot':
         specifier: 1.5.0
         version: 1.5.0(@types/react@19.3.0)(react@19.3.1)
@@ -350,6 +353,9 @@ importers:
       '@junior/protocol':
         specifier: workspace:*
         version: link:../packages/protocol
+      '@junior/testkit':
+        specifier: workspace:*
+        version: link:../packages/testkit
       '@types/jsdom':
         specifier: 30.0.0
         version: 30.0.0

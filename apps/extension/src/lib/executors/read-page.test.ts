@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { BrowserActionSchema, type BrowserAction, type PermissionMode } from "@junior/protocol";
+import { stubJsdomElementBasics, stubStackedLayout } from "@junior/testkit/jsdom";
 import { executeAction, type ExecutorEnv } from "./index";
 import { juniorActionInPage } from "./in-page";
 import { juniorReadTextInPage, type BuildDomTreeArgs, type ReadTextRequest } from "./read-page";
@@ -29,43 +30,11 @@ const pageFixtureHtml =
   readFileSync(FIXTURE_PAGE_PATH, "utf8").match(/<body>([\s\S]*)<\/body>/)?.[1] ?? "";
 
 // ── jsdom layout stubs (M3-1 pattern, extended for buildDomTree's machinery):
-// distinct y-stacked rects per element so document.elementFromPoint can resolve
-// honestly, and offsetWidth/Height on the prototype for isElementVisible. ──
-function stubLayout() {
-  const els = Array.from(document.body.querySelectorAll("*"));
-  els.forEach((el, i) => {
-    const top = (i + 1) * 30; // body itself (i=0 in other stubs) stays at index order
-    const rect = {
-      width: 100,
-      height: 20,
-      top,
-      left: 0,
-      right: 100,
-      bottom: top + 20,
-      x: 0,
-      y: top,
-      toJSON: () => ({}),
-    } as DOMRect;
-    el.getBoundingClientRect = () => rect;
-    el.getClientRects = () => [rect] as unknown as DOMRectList;
-  });
-  document.elementFromPoint = ((x: number, y: number) => {
-    for (const el of document.body.querySelectorAll("*")) {
-      const r = el.getBoundingClientRect();
-      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return el;
-    }
-    return null;
-  }) as unknown as Document["elementFromPoint"];
-}
-
+// the shared @junior/testkit/jsdom stacked-rect stub so elementFromPoint
+// resolves honestly, plus offsetWidth/Height on the prototype for
+// isElementVisible. ──
 beforeAll(() => {
-  Element.prototype.scrollIntoView = () => {};
-  for (const prop of ["offsetWidth", "offsetHeight"] as const) {
-    Object.defineProperty(HTMLElement.prototype, prop, {
-      get: () => 100,
-      configurable: true,
-    });
-  }
+  stubJsdomElementBasics({ offsetSize: true });
 });
 
 beforeEach(() => {
@@ -263,7 +232,7 @@ describe("vendored buildDomTree.js (real file, jsdom)", () => {
       <input type="text" name="query" placeholder="Search" value="hello">
       <input type="password" name="pw" value="hunter2">
     `;
-    stubLayout();
+    stubStackedLayout(document);
     loadVendoredBuildDomTree();
   });
 
@@ -391,7 +360,7 @@ describe("M5-4 DOM dump size audit", () => {
 
   it("plan fixture page: outline lands far under the 4k typical budget", () => {
     document.body.innerHTML = pageFixtureHtml;
-    stubLayout();
+    stubStackedLayout(document);
     loadVendoredBuildDomTree();
     const out = buildDomTreeFn()({ mode: "outline", maxChars: 8000 }) as { text: string };
     console.log(`audit: outline(fixtures/page.html) = ${out.text.length} chars`);
@@ -400,7 +369,7 @@ describe("M5-4 DOM dump size audit", () => {
 
   it("typical landing page (~90 interactive elements): outline stays ≤ 4k chars", () => {
     document.body.innerHTML = typicalLandingPage();
-    stubLayout();
+    stubStackedLayout(document);
     loadVendoredBuildDomTree();
     const out = buildDomTreeFn()({ mode: "outline", maxChars: 8000 }) as { text: string };
     console.log(`audit: outline(typical landing) = ${out.text.length} chars`);
@@ -415,7 +384,7 @@ describe("M5-4 DOM dump size audit", () => {
         `<div class="row"><a href="#r${i}">row link ${i}</a><button>act ${i}</button>` +
         `<input aria-label="field ${i}"><span>${"text ".repeat(5)}</span></div>`,
     ).join("");
-    stubLayout();
+    stubStackedLayout(document);
     loadVendoredBuildDomTree();
     const out = buildDomTreeFn()({ mode: "outline", maxChars: 8000 }) as { text: string };
     console.log(`audit: outline(1500-element stress page) = ${out.text.length} chars (capped)`);

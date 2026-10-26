@@ -9,6 +9,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { JSDOM } from "jsdom";
+import { stubStackedLayout } from "@junior/testkit/jsdom";
 
 const VENDOR_PATH = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -140,35 +141,9 @@ export class FakeTab {
     const w = this.dom.window as unknown as Record<string, unknown>;
     delete w.__junior_dom_map;
     delete w.__junior_dom_map_url;
-    this.stubLayout(doc);
+    // Distinct y-stacked rects per element + an honest elementFromPoint scan
+    // (the shared @junior/testkit/jsdom stub).
+    stubStackedLayout(doc);
     page.onShow?.(doc);
-  }
-
-  /** Distinct y-stacked rects per element + an honest elementFromPoint scan. */
-  private stubLayout(doc: Document): void {
-    const els = Array.from(doc.body.querySelectorAll("*"));
-    els.forEach((el, i) => {
-      const top = (i + 1) * 30;
-      const rect = {
-        width: 100,
-        height: 20,
-        top,
-        left: 0,
-        right: 100,
-        bottom: top + 20,
-        x: 0,
-        y: top,
-        toJSON: () => ({}),
-      } as DOMRect;
-      el.getBoundingClientRect = () => rect;
-      el.getClientRects = () => [rect] as unknown as DOMRectList;
-    });
-    doc.elementFromPoint = ((x: number, y: number) => {
-      for (const el of doc.body.querySelectorAll("*")) {
-        const r = el.getBoundingClientRect();
-        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return el;
-      }
-      return null;
-    }) as unknown as Document["elementFromPoint"];
   }
 }
