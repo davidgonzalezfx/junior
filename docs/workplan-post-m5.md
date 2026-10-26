@@ -314,3 +314,5 @@ U…                       (optional)
   writes; App wiring 4/5 on unmodified App.tsx) → green 17/17 (+3 snapshotFor units) + real-
   ChatPanel seed-identity check; gates green (167 protocol + 247 bridge + 326 ext + 17 tests
   incl. 2 gated skip + 5 spikes + 6 testkit) · e7301f6
+- 2026-10-26 — T6 real-Chrome verify by the user: 5/5 green (rename survives, delete sticks, cut-off long
+  reply kept as partial, viewing doesn't reorder, History → Back keeps the full transcript).
