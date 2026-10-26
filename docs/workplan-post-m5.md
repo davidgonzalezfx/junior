@@ -144,7 +144,19 @@
     permission that was already denied. Fix: mirror the action path's cleanup (`futures.delete` +
     `queue.remove`, cf. `queue.ts:140-144`). Regression: queue card with no poller → lapse →
     late approve must be `delivered: false`.
-- [ ] **T4 — Alarms-backed deadlines + persisted pause** *(R§3.3 + §4.1, one mechanism)*
+- [x] **T4 — Alarms-backed deadlines + persisted pause** *(R§3.3 + §4.1, one mechanism)*
+  **DONE 2026-10-26 (commits a0503ef + d000182):** SW stack extracted to `lib/agent-runtime.ts`
+  (the suspension seam: boot, kill, re-boot over the same storage). `lib/approval-ledger.ts` keeps
+  one **storage.session** record per card plus `junior_paused`, chosen over storage.local because
+  both facts die with the browser session (see decisions.md), and arms a one-shot alarm at
+  `max(deadline, now+30 s)`. On wake: expired cards are denied with the new optional
+  `ApprovalDecision.reason:"timeout"`, mirror cards are denied as interrupted, live cards are
+  adopted with their original deadline, and the pause is restored before the first poll. Every
+  connect sends `approval_sync`, which the panel uses to replace its cards wholesale (no ghosts),
+  and answers clicked while the port is down go to an outbox. Found on the way: the overlay hid on
+  every idle, even while paused, so there was no Resume button. It now stays visible while paused.
+  M5-9's last-disconnect deny is kept. Fail-first: `tests/e2e/sw-suspension.test.ts` red 4/4 →
+  green 4/4.
   - SW suspension kills the 120 s approval timer + pending map (`agent-loop.ts:146-163`,
     `panel-approvals.ts:62`) and silently un-pauses paused loops (`agent-loop.ts:39,65-70`).
   - Fix: one-shot `chrome.alarms` at the card deadline (permission already declared, never used);
@@ -281,3 +293,8 @@ U…                       (optional)
   re-delivered, late approve delivered:false, no leaks, item + plain paths, in-window answer still
   honoured); gates green (166 protocol + 246 bridge + 290 ext + 13 tests incl. 2 gated skip +
   5 spikes + 6 testkit) · ff74514
+- 2026-10-26 — T4 done · MV3 suspension survival (storage.session card ledger + deadline alarms +
+  persisted pause; approval_sync ghost cleanup; structured deny reason on the wire) · fail-first
+  suspension e2e red 4/4 → green 4/4 (deny-after-wake, alarm-denies-lapsed card, pause survives,
+  exact live set on reconnect) + 18 unit tests; gates green (167 protocol + 247 bridge + 308 ext +
+  17 tests incl. 2 gated skip + 5 spikes + 6 testkit) · a0503ef, d000182
