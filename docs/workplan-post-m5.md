@@ -251,6 +251,9 @@
     shadow roots in the resolver and the outline; the tool descriptions in BOTH catalogs (chat + MCP)
     explain targets, media control, and that DRM video (Udemy, Netflix) screenshots render black.
   - Verify on YouTube (iframe player) and Udemy (logged-in lecture page).
+  - **User decision 2026-10-26:** no `chrome.debugger` in T5b. Ship strict targeting, labels, the
+    media API and the keyboard fallback first; if Udemy still ignores synthetic input, trusted input
+    via `chrome.debugger` becomes its own follow-up story.
 - [x] **T7 — Screenshot tool consistently fails: "Screenshot failed: Failed to fetch"** *(user-reported 2026-10-26)*
   **DONE 2026-10-26 (commit 8b83380):** root cause was `screenshot.ts` `fetch(dataUrl)` in the SW —
   the extension_pages CSP (covers the background worker) has `connect-src 'self' http://127.0.0.1:8620`,
