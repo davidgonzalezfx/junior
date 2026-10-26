@@ -33,6 +33,10 @@ const LIFECYCLE_TYPES = new Set([
 interface Probe {
   stream: ReadableStream<UIMessageChunk>;
   verdict: Promise<"ok" | "error" | "empty">;
+  /** The error chunk's errorText when the verdict is "error" (M5-10: the 502
+   * aggregate names the real provider failure, not just "provider error"). Read
+   * after the verdict settles. */
+  errorText: string;
   /** Release a losing candidate's source stream. */
   discard(): void;
 }
@@ -47,7 +51,11 @@ export function probeUiStream(source: ReadableStream<UIMessageChunk>): Probe {
   const verdict = new Promise<"ok" | "error" | "empty">((res) => {
     settle = res;
   });
+  let errorText = "";
 
+  // The consumer loop must start BEFORE the replay stream is constructed — a
+  // ReadableStream pull can fire at construction and would race the loop for the
+  // source (cost one red fallback test when reordered, M5-10).
   void (async () => {
     for (;;) {
       const { value, done } = await reader.read();
@@ -57,6 +65,8 @@ export function probeUiStream(source: ReadableStream<UIMessageChunk>): Probe {
       }
       buffered.push(value);
       if (value.type === "error") {
+        const text = (value as { errorText?: unknown }).errorText;
+        errorText = typeof text === "string" ? text : "";
         settle("error");
         return;
       }
@@ -69,6 +79,9 @@ export function probeUiStream(source: ReadableStream<UIMessageChunk>): Probe {
 
   return {
     verdict,
+    get errorText() {
+      return errorText;
+    },
     discard() {
       void reader.cancel();
     },
@@ -114,7 +127,11 @@ export async function firstSuccessfulStream(
     if (verdict === "ok") return probe.stream;
     probe.discard();
     failures.push(
-      verdict === "error" ? "provider error before first token" : "provider returned no content",
+      verdict === "error"
+        ? // M5-10: name the real failure — the raw errorText was previously dropped,
+          // so the panel only ever saw "provider error before first token".
+          `provider error before first token${probe.errorText ? ` — ${probe.errorText}` : ""}`
+        : "provider returned no content",
     );
   }
   throw new AllProvidersFailedError(failures);

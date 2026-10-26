@@ -203,6 +203,10 @@ export function chatRoutes(deps: ChatDeps) {
     // Every candidate runs the SAME agent options — a mid-chain fallback must not
     // silently drop the tool loop.
     const candidates = buildCandidateChain(body.data.provider, config.providers.fallbackChain);
+    // M5-10: a pre-token provider error doesn't always ride an error chunk (observed
+    // live: the UI stream just ends, the aggregate said "provider returned no
+    // content") — capture the real failure per provider so the 502 body can name it.
+    const providerErrors = new Map<string, string>();
     const buildStream = (model: LanguageModel, providerId: string) =>
       streamText({
         model,
@@ -215,7 +219,11 @@ export function chatRoutes(deps: ChatDeps) {
         abortSignal: c.req.raw.signal,
         onAbort: ({ steps }) =>
           log(`[chat] stream aborted by client after ${steps.length} step(s) (${providerId})`),
-        onError: ({ error }) => log(`[chat] stream error (${providerId}): ${toErrorText(error)}`),
+        onError: ({ error }) => {
+          const text = toErrorText(error);
+          providerErrors.set(providerId, text);
+          log(`[chat] stream error (${providerId}): ${text}`);
+        },
       });
 
     try {
@@ -241,7 +249,17 @@ export function chatRoutes(deps: ChatDeps) {
     } catch (error) {
       if (error instanceof AllProvidersFailedError) {
         log(`[chat] ${error.message}`);
-        return c.json({ error: error.message }, 502);
+        // M5-10: the aggregate alone ("provider returned no content") is useless in
+        // the panel — append what the providers actually said (error-chunk text lands
+        // in the failure strings; streamText onError text lands in providerErrors).
+        const detail = [...providerErrors.entries()]
+          .map(([id, text]) => `${id}: ${text}`)
+          .join(" | ");
+        const message =
+          detail.length > 0 && !error.message.includes(detail)
+            ? `${error.message} (provider errors: ${detail})`
+            : error.message;
+        return c.json({ error: message }, 502);
       }
       throw error;
     }

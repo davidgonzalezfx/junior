@@ -138,4 +138,18 @@ describe("firstSuccessfulStream", () => {
       firstSuccessfulStream([() => errorStream(), () => streamOf({ type: "finish" })]),
     ).rejects.toThrow(AllProvidersFailedError);
   });
+
+  it("M5-10: the error chunk's errorText rides in the failure detail", async () => {
+    // The provider's real message (e.g. "Tool result is missing for tool call …")
+    // used to be dropped — the panel only saw "provider error before first token".
+    await expect(firstSuccessfulStream([() => errorStream()])).rejects.toThrow(
+      /provider error before first token — 401 Unauthorized/,
+    );
+  });
+
+  it("M5-10: a silent end (empty verdict) still reports plainly", async () => {
+    await expect(
+      firstSuccessfulStream([() => streamOf({ type: "start" }, { type: "finish" })]),
+    ).rejects.toThrow(/provider returned no content(?! —)/);
+  });
 });

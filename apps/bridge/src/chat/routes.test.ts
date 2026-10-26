@@ -440,6 +440,29 @@ describe("POST /api/chat fallback chain (M2-4, plan §4.5)", () => {
     expect(b.bodies).toHaveLength(1);
   });
 
+  it("M5-10: the 502 body carries the providers' real error text, not just the aggregate", async () => {
+    // The live M5-10 repro: the panel saw only "provider returned no content" while
+    // the bridge log held the actionable message. The wire error must name it.
+    const down = await startMockOpenAI({ failStatus: 401 });
+    const { app } = newApp({
+      providers: {
+        openaiCompatible: [
+          { id: "openrouter", label: "OpenRouter", baseUrl: down.baseUrl, apiKey: "sk-test" },
+        ],
+      },
+    });
+    const res = await postChat(app, {
+      provider: "openrouter",
+      model: "vendor/model-name",
+      messages: [uiMessage],
+    });
+    expect(res.status).toBe(502);
+    const message = wireError(await res.json());
+    expect(message).toMatch(/all providers failed/);
+    expect(message).toContain("openrouter:");
+    expect(message).toContain("mock failure 401");
+  });
+
   it("a stale chain entry (unconfigured id) is skipped, not fatal", async () => {
     const primary = await startMockOpenAI();
     const { app } = newApp({
