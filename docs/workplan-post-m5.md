@@ -421,3 +421,4 @@ U…                       (optional)
   first action raced; create joins an existing Junior group) · fail-first red 2/11 → green 11/11;
   gates green (167 protocol + 247 bridge + 359 ext + 25 tests incl. 2 gated skip + 5 spikes +
   6 testkit) · ea7658c
+- 2026-10-26 — T1b real-Chrome verify by the user: one Junior tab group at task start.
