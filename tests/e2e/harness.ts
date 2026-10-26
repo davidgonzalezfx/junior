@@ -67,6 +67,10 @@ export interface HarnessOptions {
   /** T1: extra tabs the "user" has open (tab 2, 3, …), each its own FakeTab
    * realm. Tab 1 stays the agent's tab (`harness.tab`). */
   otherTabs?: Record<number, { url: string; page: FakePage }>;
+  /** "external": the harness does NOT start its own AgentLoop — the test boots
+   * the production SW stack (createAgentRuntime) against `agentEnv` and the
+   * bridge itself, so it can discard and re-boot it (MV3 suspension). */
+  sw?: "harness" | "external";
 }
 
 export interface Harness {
@@ -104,6 +108,8 @@ export interface Harness {
   };
   /** The REAL AgentLoop — M4-5 tests pause it to pin an item in the bridge queue. */
   readonly loop: AgentLoop;
+  /** The executor env bound to the agent tab — what a test-booted SW executes with. */
+  readonly agentEnv: ExecutorEnv;
   /** Resolves once the loop's first long-poll has pinged the bridge. */
   waitConnected(timeoutMs?: number): Promise<void>;
   stop(): Promise<void>;
@@ -276,7 +282,7 @@ export async function startHarness(opts: HarnessOptions): Promise<Harness> {
       hasListener: () => true,
     },
   });
-  loop.start();
+  if (opts.sw !== "external") loop.start();
 
   const harness: Harness = {
     bridgeUrl,
@@ -324,6 +330,7 @@ export async function startHarness(opts: HarnessOptions): Promise<Harness> {
       };
     },
     loop,
+    agentEnv,
     async waitConnected(timeoutMs = 5_000): Promise<void> {
       const deadline = Date.now() + timeoutMs;
       for (;;) {

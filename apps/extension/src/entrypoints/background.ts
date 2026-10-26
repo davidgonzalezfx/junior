@@ -1,20 +1,17 @@
 // Service worker (plan §5.2): pairing, agent loop, Port router and
 // approval cards. The SW is the composition root — every capability lives in a
 // tested lib module; this file only wires chrome events to them.
-import { executeAction, defaultEnv } from "@/lib/executors";
+import { defaultEnv } from "@/lib/executors";
 import { AgentTabManager, defaultAgentTabHost, withAgentTab } from "@/lib/agent-tab";
-import { AgentLoop, mirrorAsk } from "@/lib/agent-loop";
-import { PortRouter } from "@/lib/port-router";
-import { PanelApprovalBroker } from "@/lib/panel-approvals";
-import { TaskStatusTracker } from "@/lib/task-status";
-import { WorkOverlayController, defaultOverlayEnv } from "@/lib/work-overlay";
+import { createAgentRuntime } from "@/lib/agent-runtime";
+import { defaultOverlayEnv } from "@/lib/work-overlay";
 import {
   fetchNextAction,
   postActionResult,
   postApprovalDecision,
   postCancel,
 } from "@/lib/bridge-client";
-import { addSiteGrant, clearSiteGrants, getSiteGrants, grantCovers } from "@/lib/site-grants";
+import { clearSiteGrants } from "@/lib/site-grants";
 import { ensureToken, pairWithBridge } from "@/lib/pairing";
 import { getToken, loadSettings, saveSettings } from "@/lib/settings";
 import { runStorageMigrations } from "@/lib/storage-migrations";
@@ -54,37 +51,7 @@ export default defineBackground(() => {
     void clearSiteGrants().catch(() => null);
   });
 
-  // --- Port router + approval broker (§5.2 item 5) -----------------------------
-  const taskStatus = new TaskStatusTracker(); // last state for (re)connecting panels
-  const router = new PortRouter({
-    extensionId: browser.runtime.id,
-    extensionOrigin: location.origin,
-    onApprovalResponse: (msg) => broker.handleResponse(msg),
-    // The panel is the only approver — once its port is gone nobody can
-    // ever answer, so deny every pending card NOW (§4.3 no-panel ⇒ deny). This
-    // is the fix for the real-Chrome hang: a closed panel used to leave the
-    // card on a SW setTimeout that an MV3 suspension silently dropped, parking
-    // the item forever. The loop awaiting the card wakes, posts the deny, and
-    // unwinds (overlay hidden via onStatus idle).
-    onPanelDisconnected: () => broker.denyAllNoPanel(),
-  });
-  const broker = new PanelApprovalBroker(router);
-
-  browser.runtime.onConnect.addListener((port) => {
-    if (!router.attach(port)) return;
-    // init_state once, immediately on connect (Autono background.js:5225), then
-    // the task's CURRENT state — a panel opened mid-task missed every broadcast.
-    void loadSettings().then((settings) => {
-      router.broadcast({
-        type: "init_state",
-        agentActive: loop.active,
-        permissionMode: settings.permissionMode,
-      });
-      router.broadcast(taskStatus.snapshot());
-    });
-  });
-
-  // --- Agent loop (§5.2 item 2) -------------------------------------------------
+  // --- Agent stack (§5.2 items 2, 5, 6 — lib/agent-runtime.ts) -----------------
   const bridgeCall = async <T>(fn: (baseUrl: string, token: string) => Promise<T>): Promise<T> => {
     const { bridgeUrl } = await loadSettings();
     const token = await getToken();
@@ -92,83 +59,35 @@ export default defineBackground(() => {
     return fn(bridgeUrl, token);
   };
 
-  // T1: the agent gets its own tab (pinned, "Junior" group — lib/agent-tab.ts).
+  // The agent gets its own tab (pinned, "Junior" group — lib/agent-tab.ts).
   // Every action resolves to that tab id for the whole task regardless of the
   // user's focus; get_active_tab within agent context reports it, and the
   // overlay only ever lands on it.
   const agentEnv = withAgentTab(defaultEnv, new AgentTabManager(defaultAgentTabHost));
 
-  // §5.2 item 6: on agent activity the working tab gets the overlay; idle hides
-  // it. The overlay's Pause button comes back through onOverlayAction → the
-  // loop's local pause; the loop's onPausedChange re-syncs the overlay + panel.
-  const syncOverlay = async (state: "idle" | "working" | "awaiting_approval") => {
-    if (state === "idle") {
-      await overlay.hide();
-      return;
-    }
-    const tab = await agentEnv.getActiveTab();
-    if (tab?.id !== undefined) await overlay.show(tab.id);
-  };
-
-  const overlay = new WorkOverlayController(defaultOverlayEnv, {
-    onOverlayAction: (action) => {
-      if (action === "cancel") void cancelTask();
-      else loop.setPaused(action === "pause");
+  const runtime = createAgentRuntime({
+    extensionId: browser.runtime.id,
+    extensionOrigin: location.origin,
+    bridge: {
+      poll: (timeoutMs) => bridgeCall((url, token) => fetchNextAction(url, token, timeoutMs)),
+      postResult: (result) => bridgeCall((url, token) => postActionResult(url, token, result)),
+      postDecision: async (decision) => {
+        await bridgeCall((url, token) => postApprovalDecision(url, token, decision));
+      },
+      postCancel: async () => {
+        await bridgeCall((url, token) => postCancel(url, token));
+      },
     },
+    agentEnv,
+    overlayEnv: defaultOverlayEnv,
+    permissionMode: async () => (await loadSettings()).permissionMode,
   });
 
-  const loop = new AgentLoop({
-    poll: (timeoutMs) => bridgeCall((url, token) => fetchNextAction(url, token, timeoutMs)),
-    postResult: (result) => bridgeCall((url, token) => postActionResult(url, token, result)),
-    postDecision: async (decision) => {
-      await bridgeCall((url, token) => postApprovalDecision(url, token, decision));
-    },
-    execute: (action) =>
-      executeAction(action, agentEnv, {
-        ask: mirrorAsk(broker, async (domain) => {
-          await addSiteGrant(domain);
-        }),
-        granted: async (pageUrl) => grantCovers(await getSiteGrants(), pageUrl),
-      }),
-    ask: broker,
-    onStatus: (state, detail) => {
-      router.broadcast(taskStatus.update(state, detail));
-      void syncOverlay(state).catch(() => null);
-    },
-    onPausedChange: (paused) => {
-      router.broadcast(taskStatus.update(paused ? "paused" : "idle"));
-      void overlay.setPaused(paused).catch(() => null);
-    },
-    // A dead bridge never sends "idle" again — clear the overlay so it
-    // can't outlive the task; the panel's red status dot tells the rest.
-    onBridgeError: () => {
-      void overlay.hide().catch(() => null);
-    },
-  });
-  loop.start();
-
-  // Crash recovery: hide any overlay an earlier (killed) SW left showing.
-  // Deferred past the declarations above; every wake finds either nothing or a
-  // stale record — a fresh SW has no active task, so hiding is always safe.
-  void overlay.recoverAfterRestart().catch(() => null);
-
-  /** Kill path (overlay ✕ / stuck agent): deny everything in flight
-   * bridge-side, close pending cards, drop the overlay. Fire-and-forget safe. */
-  const cancelTask = async (): Promise<void> => {
-    if (loop.isPaused) loop.setPaused(false); // a cancelled task resumes unpaused
-    try {
-      await bridgeCall((url, token) => postCancel(url, token));
-    } catch {
-      // Bridge down — nothing to cancel remotely; the loop's backoff handles it.
-    }
-    broker.cancelAll(); // open cards close with approval_resolved
-    await overlay.hide().catch(() => null);
-    router.broadcast(taskStatus.update("idle"));
-  };
+  browser.runtime.onConnect.addListener((port) => runtime.connect(port));
 
   // Content-script one-shot messages (overlay_action / content_ready) — the
   // controller applies the port-router firewall before acting.
   browser.runtime.onMessage.addListener((msg: unknown, sender) => {
-    overlay.handleContentMessage(msg, sender);
+    runtime.handleContentMessage(msg, sender);
   });
 });

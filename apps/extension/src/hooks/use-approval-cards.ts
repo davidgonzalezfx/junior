@@ -1,26 +1,18 @@
 // useApprovalCards — panel side of the Port channel (plan §5.2 item 5, §5.3
 // approval cards). Connects to the SW with the router's port name, holds one
 // card per pending approval (Map keyed by id — cards coexist), and exposes
-// respond(). The 120 s deadline computed here is DISPLAY: the SW broker's timer
-// is authoritative and its approval_resolved removes the card either way.
+// respond(). Card bookkeeping is the pure reducer in lib/approval-cards.ts.
 import { useEffect, useRef, useState } from "react";
 import { browser } from "wxt/browser";
+import { reduceCards, removeCard, type CardMap, type PendingCard } from "@/lib/approval-cards";
 import {
   PANEL_PORT_NAME,
-  type ApprovalRequestMessage,
   type ApprovalResponseMessage,
-  type ApprovalResolvedMessage,
   type InitStateMessage,
   type TaskStatusMessage,
 } from "@/lib/port-router";
 
-export interface PendingCard {
-  id: string;
-  approval: ApprovalRequestMessage["approval"];
-  /** Epoch ms at which the card expires (deny) — drives the countdown ring. */
-  deadline: number;
-  totalMs: number;
-}
+export type { PendingCard };
 
 export type AgentStatus = TaskStatusMessage["state"];
 
@@ -32,7 +24,7 @@ export interface AgentChannelState {
 }
 
 export function useApprovalCards(): AgentChannelState {
-  const [cardsById, setCardsById] = useState<Map<string, PendingCard>>(new Map());
+  const [cardsById, setCardsById] = useState<CardMap>(new Map());
   const [status, setStatus] = useState<AgentStatus | null>(null);
   const [init, setInit] = useState<InitStateMessage | null>(null);
   const respondRef = useRef<(id: string, decision: ApprovalResponseMessage["decision"]) => void>(
@@ -44,34 +36,16 @@ export function useApprovalCards(): AgentChannelState {
     let retry: ReturnType<typeof setTimeout> | undefined;
     let port: ReturnType<typeof browser.runtime.connect> | null = null;
 
-    const removeCard = (id: string) =>
-      setCardsById((prev) => {
-        if (!prev.has(id)) return prev;
-        const next = new Map(prev);
-        next.delete(id);
-        return next;
-      });
-
     const connect = () => {
       if (closed) return;
       port = browser.runtime.connect({ name: PANEL_PORT_NAME });
       port.onMessage.addListener((msg: unknown) => {
         if (typeof msg !== "object" || msg === null) return;
         const m = msg as { type?: string };
+        const at = Date.now();
+        setCardsById((prev) => reduceCards(prev, msg, at));
         if (m.type === "init_state") setInit(msg as InitStateMessage);
-        else if (m.type === "approval_request") {
-          const req = msg as ApprovalRequestMessage;
-          setCardsById((prev) =>
-            new Map(prev).set(req.id, {
-              id: req.id,
-              approval: req.approval,
-              deadline: Date.now() + req.remainingMs,
-              totalMs: req.remainingMs,
-            }),
-          );
-        } else if (m.type === "approval_resolved") {
-          removeCard((msg as ApprovalResolvedMessage).id);
-        } else if (m.type === "task_status") {
+        else if (m.type === "task_status") {
           setStatus((msg as TaskStatusMessage).state);
         }
       });
@@ -83,7 +57,7 @@ export function useApprovalCards(): AgentChannelState {
 
     connect();
     respondRef.current = (id, decision) => {
-      removeCard(id); // don't wait for approval_resolved — the click already decided
+      setCardsById((prev) => removeCard(prev, id)); // don't wait for approval_resolved — the click already decided
       port?.postMessage({
         type: "approval_response",
         id,
