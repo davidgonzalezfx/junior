@@ -140,6 +140,14 @@
   - Files: `apps/extension/src/entrypoints/background.ts`, `lib/agent-loop.ts`,
     `lib/executors/*` (they take tabId today — verify), `lib/port-router.ts`, manifest
     (`tabGroups` permission), protocol if the action schema needs an explicit tabId field.
+- [ ] **T1b — One agent tab group, not two** *(user-reported 2026-10-26, T1 regression)*
+  - Starting agent mode opens TWO "Junior" tab groups. `AgentTabManager.resolve()`
+    (`apps/extension/src/lib/agent-tab.ts` ~46) has no single-flight guard: concurrent callers at task
+    start (likely the overlay and the first action) both miss the remembered tab and both create one.
+    Fix: share one in-flight promise per resolve, and make `create()` join an existing "Junior" group
+    instead of always making a new one. Fail-first test: two concurrent `resolve()` calls yield ONE
+    created tab and ONE group.
+
 - [x] **T2 — CLI stdout line-buffering** *(R§3.1)*
   **DONE 2026-10-26 (commit fcc8e23):** `runCliTurn` holds the trailing partial line until its
   newline and flushes it on close; `setEncoding("utf8")` already decodes split multi-byte chars.
@@ -222,13 +230,27 @@
   - Privacy: frames belong to the agent tab only (T1 invariant); the sensitive-field refusal and
     the guard must apply inside frames exactly as in the top frame — add tests for both.
   - Verify: a page with a same-origin and a cross-origin iframe (fixture), then YouTube embed.
-- [ ] **T5b — Media player controls (play/pause)**
-  - YouTube: play worked, pause did not. `<video>`/`<audio>` and player chrome are not in the
-    resolver's CLICK_POOL and often live in shadow DOM. Fix: add media elements and common player
-    control roles to the pool, pierce open shadow roots in the resolver (and the outline), and add
-    a keyboard fallback (focus the player, send `k`/space) when a click on a media target changes
-    nothing. Update tool descriptions in BOTH catalogs (chat + MCP) so models target the
-    `<video>` element or the control's index instead of giving up. Depends on T5a for iframe players.
+- [ ] **T5b — Strict targeting + media controls** *(scope widened 2026-10-26 from the user's Udemy run)*
+  - **Strict targeting (safety):** on Udemy a numeric index `[0]` and the CSS selector `video` both
+    missed and the resolver fell through to fuzzy text matching, clicking a "Home" link and a "Photo &
+    Video Editing Tools" banner and navigating away. Rule: a numeric/`fN:` index that is not found,
+    and a syntactically valid CSS selector or XPath that matches nothing visible, must FAIL with a
+    clear error (no fallthrough to attribute/text strategies). Only free-text targets use the
+    fuzzy strategies, and text matching prefers exact over substring. Every click/type result
+    reports WHAT it hit (tag, text, href, strategy used) so the model can tell it clicked the wrong
+    thing.
+  - **Unlabeled controls:** players expose buttons with no accessible name. The outline must show
+    fallback labels: `title`, `data-purpose`, `data-testid`, `aria-*`, `<svg><use href="#icon-…">`
+    icon names, icon class hints, and visually hidden text.
+  - **Media state + control:** a way to read every `<video>`/`<audio>` in the agent tab and its
+    frames (paused, currentTime, duration, readyState, muted) and a media action (play, pause, seek,
+    mute) that uses the HTMLMediaElement API in the right frame, with a keyboard fallback (focus the
+    player, send `k`/space). Mind Chrome's autoplay policy: `play()` without user activation can be
+    rejected unless muted; report that clearly instead of failing silently.
+  - Also: `<video>`/`<audio>` and common player control roles join the click pool; pierce open
+    shadow roots in the resolver and the outline; the tool descriptions in BOTH catalogs (chat + MCP)
+    explain targets, media control, and that DRM video (Udemy, Netflix) screenshots render black.
+  - Verify on YouTube (iframe player) and Udemy (logged-in lecture page).
 - [x] **T7 — Screenshot tool consistently fails: "Screenshot failed: Failed to fetch"** *(user-reported 2026-10-26)*
   **DONE 2026-10-26 (commit 8b83380):** root cause was `screenshot.ts` `fetch(dataUrl)` in the SW —
   the extension_pages CSP (covers the background worker) has `connect-src 'self' http://127.0.0.1:8620`,
@@ -315,7 +337,7 @@
 T1                       (privacy leak — approved to jump the queue)
 C1 → C2 → C3             (cleanup)
 T2 → T3 → T4 → T6        (correctness)
-T7 → T5a → T5b           (screenshot first — it is the debugging tool for T5)
+T7 → T5a → T1b → T5b     (screenshot first — it is the debugging tool for T5)
 F1 → F2 → F3             (user features)
 H1 → H2 → H3             (hardening)
 U…                       (optional)
