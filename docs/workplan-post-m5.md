@@ -68,7 +68,15 @@
 
 ## Wave T — Correctness (bug fixes; each needs a fail-first regression test)
 
-- [ ] **T1 — Agent tab isolation + wrong-tab fix** *(the privacy bug — candidate to jump the queue)*
+- [x] **T1 — Agent tab isolation + wrong-tab fix** *(the privacy bug — candidate to jump the queue)*
+  **DONE 2026-10-26 (commits 0e12edb + f676d79):** `lib/agent-tab.ts` — `AgentTabManager`
+  (cached id re-verified → `junior_agent_tab` recall → tabGroups "Junior" search → create pinned +
+  grouped; grouping best-effort) + `withAgentTab` env wrapper; background + harness wire the loop's
+  `execute` and the overlay through it; screenshot reveals the agent tab and captures by its
+  `windowId`; `tabGroups` permission added. No protocol change (tab targeting never reaches the
+  wire). Fail-first: `tests/e2e/agent-tab.test.ts` red pre-fix (`get_active_tab` reported the
+  user's mail tab after a focus switch — the reported Gmail/WhatsApp leak), green post-fix.
+  Multi-window policy noted in decisions.md (v1: tab lives where created; cross-window = M6 seed).
   - Evidence: tmux `junior:2.0` (2026-10-26): `read_page` outline/text/section returned
     **Gmail and WhatsApp Web content** while `get_active_tab` reported tldr.tech; text/section
     modes fail "Injection returned no result" on the real target page. suspected root: per-action
@@ -209,3 +217,6 @@ U…                       (optional)
 ## Progress log (append one line per finished story)
 
 - 2026-10-26 — plan created by director session; nothing dispatched yet.
+- 2026-10-26 — T1 done · agent tab isolation (pinned "Junior" group tab; per-action active-tab
+  resolution retired) · fail-first wrong-tab e2e red→green + 10 unit tests; gates green
+  (168 protocol + 229 bridge + 290 ext + 11 harness incl. 2 gated skip + 5 spikes) · 0e12edb, f676d79

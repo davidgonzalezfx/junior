@@ -429,3 +429,27 @@ fire-and-forget, so a panel connecting mid-task had to guess "idle" — a `TaskS
 the SW's last state and every connect receives it right after `init_state`. Affects:
 `apps/extension/src/lib/port-router.ts`, `panel-approvals.ts`, `task-status.ts` (new),
 `entrypoints/background.ts`, plan §5.2 item 2.
+
+## 2026-10-26 · Agent tab isolation: one pinned "Junior" tab, no per-action active-tab resolution (T1)
+
+Context: the user reported `read_page` outline/text/section returning **Gmail and WhatsApp Web
+content** while `get_active_tab` reported the task's site (tldr.tech). Root cause: every action
+resolved "active tab" per call (`executeAction` → `chrome.tabs.query({active, lastFocusedWindow})`),
+so the user switching tabs mid-task retargeted the injection — a privacy leak (private page content
+to the model) and broken reads. Options: (a) pin a task-scoped tabId in the SW and thread it through
+every executor call; (b) give the agent its OWN tab — reuse/create a pinned tab in a dedicated
+"Junior" tab group and resolve every action against it; (c) keep active-tab resolution but re-check
+task start. Choice: **(b)** (user-driven design) — it fixes the race by construction (the same id
+answers for the whole task regardless of focus), makes the agent visible and inspectable (the user
+can watch its tab), keeps `get_active_tab` honest within agent context ("the agent tab IS the active
+tab"), and confines the work overlay to the agent tab. The tab persists across tasks (it is Junior's
+workspace) and is recovered after an SW restart via `storage.local` `junior_agent_tab` + a tabGroups
+title search; grouping is labeling only (a working ungrouped tab beats a failed create — fakeBrowser
+and older Chrome degrade). Multi-window policy (v1): the tab lives in the window where it was
+created; cross-window agent tasks stay an M6 seed. No protocol change: tab targeting is an extension
+compose-root concern (`withAgentTab` wraps the ExecutorEnv), so the bridge and the model never see
+tab ids. Screenshot follow-on: `captureVisibleTab` only sees the ACTIVE tab of a window, so the
+screenshot op now reveals the agent tab (`tabs.update {active:true}`, no window focus change) and
+captures by that tab's `windowId` — the user's page can never leak into an agent screenshot. Affects:
+`apps/extension/src/lib/agent-tab.ts` (new), `executors/index.ts`, `entrypoints/background.ts`,
+`wxt.config.ts` (`tabGroups` permission), harness (`tests/e2e/`).
