@@ -237,7 +237,18 @@
   - Privacy: frames belong to the agent tab only (T1 invariant); the sensitive-field refusal and
     the guard must apply inside frames exactly as in the top frame — add tests for both.
   - Verify: a page with a same-origin and a cross-origin iframe (fixture), then YouTube embed.
-- [ ] **T5b — Strict targeting + media controls** *(scope widened 2026-10-26 from the user's Udemy run)*
+- [x] **T5b — Strict targeting + media controls** *(scope widened 2026-10-26 from the user's Udemy run)*
+  **DONE 2026-10-26 (commits 6589645, 27f26b0, e05793f, 4624cba):** root cause of `[0]` → Home:
+  buildDomTree never removes `data-highlight-index`, and the resolver queried that attribute
+  (document order) before the fresh map, so a stale `0` from an earlier read won; any miss then
+  fell through to fuzzy text, which is how `video` (zero-size player) reached the "Photo & Video"
+  banner. Index targets now use the URL-stamped map only; a valid CSS selector/XPath that matches
+  nothing visible errors with no fallback; free text is exact-before-partial; `text:` forces
+  text. Results name the hit (tag, text, href, strategy, iframe). Open shadow roots are searched;
+  video/audio and player roles join the click pool. Outline fallback labels via the Junior-owned
+  `outline.ts` hook (vendored patch 4: one call site). New `media` tool (state/play/pause/seek/
+  mute/unmute, `m0` / `f7:m0` targets, click guard path for controls, autoplay-policy message,
+  keyboard fallback). Both catalogs updated by hand (F3 unifies). No `chrome.debugger`.
   - **Strict targeting (safety):** on Udemy a numeric index `[0]` and the CSS selector `video` both
     missed and the resolver fell through to fuzzy text matching, clicking a "Home" link and a "Photo &
     Video Editing Tools" banner and navigating away. Rule: a numeric/`fN:` index that is not found,
@@ -422,3 +433,9 @@ U…                       (optional)
   gates green (167 protocol + 247 bridge + 359 ext + 25 tests incl. 2 gated skip + 5 spikes +
   6 testkit) · ea7658c
 - 2026-10-26 — T1b real-Chrome verify by the user: one Junior tab group at task start.
+- 2026-10-26 — T5b done · strict targets (map-only index, no fallback for CSS/XPath misses, hit
+  report) + outline fallback labels + `media` tool + both catalogs · fail-first: strict-targeting
+  red 10/11 → green 11/11, outline labels red 3/4 (pre-patch vendored) → green 4/4; +10 media
+  units, +3 media e2e, +2 serialization; gates green (168 protocol + 248 bridge + 386 ext + 28
+  tests incl. 2 gated skip + 5 spikes + 6 testkit; read-page 1500-element flake under full load,
+  green isolated, same 3.5 s before/after) · 6589645 27f26b0 e05793f 4624cba

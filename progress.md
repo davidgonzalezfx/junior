@@ -5,7 +5,7 @@
 
 **Updated:** 2026-10-26
 **Current milestone:** M5 Polish + hardening — ✅ **complete (5/5)** incl. M5-6/M5-7/M5-9/M5-10 bugfixes; `docs/qa.md` all green (the plan §8 M5 accept gate)
-**Current task:** none claimed (**next up: T3** per docs/workplan-post-m5.md — T2 done; milestone list M0–M5 done. Open seeds live at the bottom of this file)
+**Current task:** none claimed (**next up: F1** per docs/workplan-post-m5.md — T5b done, awaiting real-Chrome verify by the user)
 **Current blockers:** none
 
 ---
@@ -426,6 +426,13 @@
 - [test] To pin chunk boundaries deterministically, use a fake child behind `SpawnFn`: an EventEmitter with PassThrough stdio, one `setImmediate` between writes, then `emit("close", 0, null)`. A real `node -e` pipe coalesces writes unpredictably.
 - [test] `engine-cli.route.test.ts` turn-1/turn-2 test (two real node spawns) hit its 5 s timeout once under full `pnpm -r test` load. It is green isolated and on reruns. It is a load flake, like read-page's.
 
+### 2026-10-26 (post-M5 T5b strict targeting + media session)
+- [vendor] buildDomTree sets `data-highlight-index` on indexed elements and NEVER removes it; the map is rebuilt per read. Treat `__junior_dom_map` (URL-stamped) as the only index authority — the attribute can name a different element after a scroll/re-read.
+- [css] Most plain words are valid CSS (`Sign in` = descendant selector, `example.com` = type+class), so "querySelector didn't throw" can't decide selector-vs-text. T5b rule: selector syntax chars, or every compound starts with a class / lowercase known tag; `text:` forces text.
+- [chrome-api] Content scripts' isolated world has `customElements === null`, so custom tags can't be detected through the registry — the resolver checks `getElementsByTagName(tag).length` for hyphenated names instead.
+- [jsdom] No media playback: `play()`/`pause()` log "not implemented" and `paused` never changes. Use `@junior/testkit/jsdom` `fakeMedia(el, {autoplayBlocked, stalled})`.
+- [vendor] `scripts/patch-buildDomTree.mjs`: a patch that edits inside an earlier patch's replacement breaks that patch's "replacement already present" idempotency check (re-runs duplicated the NOTICE). `replaceOnce` now takes a `doneMarker`; verify with two runs + `cmp`.
+
 ## Backlog seeds
 
 > Ideas discovered mid-work land here (protocol: CLAUDE.md). Never into the current diff.
@@ -490,3 +497,4 @@
 - 2026-10-26 · post-M5 C2 · `@junior/testkit` + test dedup green, behavior-preserving: jsdom layout stubs (stacked rect + elementFromPoint for fake-tab/read-page; fixed-origin makeVisible for in-page, kept as two factories because they are genuinely different layouts), Anthropic/UI SSE builders, CLI stream-json fixtures, UIMessage factories, OpenAI-compat mock all live in testkit with byte-equality pins. Over-budget notes retired: chat-panel 689→299 (+agent 252), engine-cli 630→250 (+run 106, +route 182), routes 578→245 (+fallback 118, +agent 81), read-page 427→393. Assertions verbatim (407 expect statements before/after, identical multiset). Gates: 166 protocol + 229 bridge + 290 ext + 13 tests incl. 2 gated skip + 5 spikes (1 env-gated skip, no keys in shell) + 6 new testkit pins · 2a2bc3e, 400ffbf, eb5dc0b, fd19b62
 - 2026-10-26 · post-M5 C3 · light abstractions, behavior-preserving: chat/routes.ts 269→186 (CLI branch → cli-route.ts 70, both metadata mappers → metadata.ts 53, cliResultToMetadata test → metadata.test.ts); permission-mode enum single source = guard.ts PERMISSION_MODES (config.ts JuniorConfig + ExtensionSettings schemas now `z.enum(PERMISSION_MODES)`). Gates: 166 protocol + 229 bridge + 290 ext (read-page 1500-element flake, isolated rerun green) + 13 tests incl. 2 gated skip + 5 spikes (1 env-gated skip) + 6 testkit · ed2040e, cd05e19
 - 2026-10-26 · post-M5 T2 · CLI stdout line-buffering green: runCliTurn carries the partial line across stdout data chunks and flushes on close (review R3.1: split long lines caused "produced no result event" and dropped tool steps); false-invariant comment removed; fail-first engine-cli.chunking.test.ts 6/8 red → 8/8 green; gates 166 protocol + 237 bridge + 290 ext + 13 tests incl. 2 gated skip + 5 spikes + 6 testkit (read-page + engine-cli.route load flakes rerun green) · fcc8e23
+- 2026-10-26 · post-M5 T5b · strict targeting (stale data-highlight-index was the `[0]` → Home cause; no fuzzy fallback for index/CSS/XPath misses; hit report) + outline fallback labels + `media` tool + both catalogs; fail-first red 10/11 → 11/11 and 3/4 → 4/4; gates green · 6589645 27f26b0 e05793f 4624cba
